@@ -1,0 +1,35 @@
+name: BurgsAndBanners
+version: 0.1.0
+main: com.brandon.burgsbanners.BurgsAndBannersPlugin
+api-version: "1.21"
+
+commands:
+  burg:
+    description: Burg & Banner civic command
+    usage: /burg help
+
+permissions:
+  burg.*:
+    default: op
+    children:
+      burg.create: true
+      burg.info: true
+      burg.treasury: true
+      burg.banner: true
+      burg.claim: true
+      burg.unclaim: true
+      burg.tax: true
+  burg.create:
+    default: op
+  burg.info:
+    default: true
+  burg.treasury:
+    default: true
+  burg.banner:
+    default: true
+  burg.claim:
+    default: op
+  burg.unclaim:
+    default: op
+  burg.tax:
+    default: op
