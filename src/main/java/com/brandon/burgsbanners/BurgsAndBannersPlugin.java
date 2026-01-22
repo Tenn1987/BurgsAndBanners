@@ -1,14 +1,22 @@
 package com.brandon.burgsbanners;
 
 import com.brandon.burgsbanners.burg.BurgManager;
+import com.brandon.burgsbanners.burg.food.FoodScanService;
+import com.brandon.burgsbanners.burg.food.FoodScanScheduler;
 import com.brandon.burgsbanners.burg.storage.BurgStorage;
 import com.brandon.burgsbanners.commands.BurgCommand;
+import com.brandon.burgsbanners.mpc.MpcHook;
+import com.brandon.burgsbanners.mpc.MultiPolarCurrencyHook;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class BurgsAndBannersPlugin extends JavaPlugin {
 
     private BurgStorage burgStorage;
     private BurgManager burgManager;
+
+    private MpcHook mpcHook;
+    private FoodScanService foodScanService;
+    private FoodScanScheduler foodScanScheduler;
 
     @Override
     public void onEnable() {
@@ -17,10 +25,20 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         this.burgStorage = new BurgStorage(this);
         this.burgManager = new BurgManager(this, burgStorage);
 
-        // load burgs from burgs.yml
+        // Load burgs from burgs.yml
         burgManager.loadAll();
 
-        BurgCommand burgCommand = new BurgCommand(burgManager);
+        // MPC hook (MultiPolarCurrency)
+        this.mpcHook = new MultiPolarCurrencyHook(this);
+
+        // Food scan
+        this.foodScanService = new FoodScanService(this);
+
+        // Schedule global rescan every 3 hours (configurable)
+        this.foodScanScheduler = new FoodScanScheduler(this, burgManager, burgStorage, foodScanService);
+        this.foodScanScheduler.start();
+
+        BurgCommand burgCommand = new BurgCommand(this, burgManager, mpcHook, foodScanService);
 
         if (getCommand("burg") != null) {
             getCommand("burg").setExecutor(burgCommand);
@@ -29,12 +47,20 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
             getLogger().severe("Command 'burg' not found in plugin.yml!");
         }
 
+        // Optional alias
+        if (getCommand("city") != null) {
+            getCommand("city").setExecutor(burgCommand);
+            getCommand("city").setTabCompleter(burgCommand);
+        }
+
         getLogger().info("Burgs & Banners enabled.");
     }
 
     @Override
     public void onDisable() {
-        // Save all burgs on shutdown
+        if (foodScanScheduler != null) {
+            foodScanScheduler.stop();
+        }
         if (burgManager != null) {
             burgManager.saveAll();
         }

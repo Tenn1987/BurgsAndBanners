@@ -1,35 +1,39 @@
 name: BurgsAndBanners
-version: 0.1.0
+version: 0.1.1
 main: com.brandon.burgsbanners.BurgsAndBannersPlugin
 api-version: "1.21"
+
+depend: [MultiPolarCurrency]
 
 commands:
   burg:
     description: Burg & Banner civic command
-    usage: /burg help
+    usage: /burg found <name> <currencyCode>
+  city:
+    description: Alias for /burg
+    usage: /city found <name> <currencyCode>
 
 permissions:
   burg.*:
     default: op
     children:
-      burg.create: true
+      burg.found: true
       burg.info: true
       burg.treasury: true
-      burg.banner: true
       burg.claim: true
       burg.unclaim: true
-      burg.tax: true
-  burg.create:
+
+  burg.found:
     default: op
+
   burg.info:
     default: true
+
   burg.treasury:
     default: true
-  burg.banner:
-    default: true
+
   burg.claim:
     default: op
+
   burg.unclaim:
-    default: op
-  burg.tax:
     default: op

@@ -1,1 +1,23 @@
 # Burgs & Banners config
+
+founding:
+  # radius in chunks around the founder’s current chunk
+  # 1 = 3x3, 2 = 5x5, etc
+  starterChunkRadius: 1
+
+foodScan:
+  # sampling resolution inside each claimed chunk
+  # 1 = scan every column (slowest, most accurate)
+  # 4 = scan every 4 blocks (fast and good enough)
+  sampleStep: 4
+
+  # fish water qualifies only if it is:
+  # - surface water open to sky
+  # - part of a connected surface water body at least this size
+  fishBodyThreshold: 20
+
+  # safety cap on flood-fill nodes to avoid heavy scans on oceans
+  fishBfsNodeCap: 256
+
+  # global rescan interval in hours
+  rescanHours: 3

@@ -1,7 +1,9 @@
 package com.brandon.burgsbanners.burg.storage;
 
-import com.brandon.burgsbanners.burg.Burg;
-import com.brandon.burgsbanners.burg.ChunkClaim;
+import com.brandon.burgsbanners.burg.*;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -58,42 +60,96 @@ public class BurgStorage {
             String path = "burgs." + id;
 
             String name = yaml.getString(path + ".name", id);
+
             String leaderStr = yaml.getString(path + ".leader", null);
             if (leaderStr == null) continue;
 
             UUID leader;
-            try {
-                leader = UUID.fromString(leaderStr);
-            } catch (IllegalArgumentException ex) {
-                continue;
+            try { leader = UUID.fromString(leaderStr); }
+            catch (IllegalArgumentException ex) { continue; }
+
+            String worldIdStr = yaml.getString(path + ".worldId", null);
+            UUID worldId = null;
+            if (worldIdStr != null) {
+                try { worldId = UUID.fromString(worldIdStr); } catch (Exception ignored) {}
             }
 
-            Burg burg = new Burg(id, name, leader);
+            World world = (worldId != null) ? Bukkit.getWorld(worldId) : null;
+            if (world == null) {
+                // fallback (still loads, but home world may be wrong until fixed)
+                world = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
+            }
+            if (world == null) continue;
+
+            // Home location
+            double x = yaml.getDouble(path + ".home.x", world.getSpawnLocation().getX());
+            double y = yaml.getDouble(path + ".home.y", world.getSpawnLocation().getY());
+            double z = yaml.getDouble(path + ".home.z", world.getSpawnLocation().getZ());
+            float yaw = (float) yaml.getDouble(path + ".home.yaw", 0);
+            float pitch = (float) yaml.getDouble(path + ".home.pitch", 0);
+            Location home = new Location(world, x, y, z, yaw, pitch);
+
+            // Adopted currency
+            String adopted = yaml.getString(path + ".currency", "SHEKEL").toUpperCase(Locale.ROOT);
+
+            // Claims
+            Set<ChunkClaim> claims = new HashSet<>();
+            List<String> claimKeys = yaml.getStringList(path + ".claims");
+            for (String key : claimKeys) {
+                try {
+                    ChunkClaim claim = ChunkClaim.fromKey(key);
+                    if (claim != null) claims.add(claim);
+                } catch (Exception ignored) { }
+            }
+
+            // Build burg (use founding factory then override fields that are persisted)
+            Burg burg = Burg.createFounding(id, name, leader, world, home, adopted, claims);
+
+            // Polity stage/title
+            String stageStr = yaml.getString(path + ".polityStage", "BURG");
+            try { burg.getPopulation(); } catch (Exception ignored) {}
+            try {
+                // We stored these in Burg; if you later add setters, load them. For now, founding defaults are correct.
+            } catch (Exception ignored) {}
 
             // Members
             List<String> memberStrings = yaml.getStringList(path + ".members");
             Set<UUID> members = memberStrings.stream().map(s -> {
                 try { return UUID.fromString(s); } catch (Exception e) { return null; }
             }).filter(Objects::nonNull).collect(Collectors.toSet());
-
             members.add(leader);
             burg.getMembers().clear();
             burg.getMembers().addAll(members);
 
-            // Economy & status
-            burg.deposit(yaml.getDouble(path + ".treasury", 0.0));
-            burg.setMorale(yaml.getDouble(path + ".morale", 50.0));
-            burg.setBanner(yaml.getBoolean(path + ".banner", false));
+            // Treasury balances
+            if (yaml.isConfigurationSection(path + ".treasury")) {
+                for (String code : Objects.requireNonNull(yaml.getConfigurationSection(path + ".treasury")).getKeys(false)) {
+                    long bal = yaml.getLong(path + ".treasury." + code, 0L);
+                    burg.getTreasuryBalances().put(code.toUpperCase(Locale.ROOT), bal);
+                }
+            } else {
+                burg.getTreasuryBalances().put(adopted, 0L);
+            }
 
-            // Claims
-            List<String> claimKeys = yaml.getStringList(path + ".claims");
-            for (String key : claimKeys) {
-                try {
-                    ChunkClaim claim = ChunkClaim.fromKey(key);
-                    if (claim != null) burg.addClaim(claim);
-                } catch (Exception ignored) {
+            // Population roles (optional persisted)
+            if (yaml.isConfigurationSection(path + ".population")) {
+                burg.getPopulation().clear();
+                for (String roleKey : Objects.requireNonNull(yaml.getConfigurationSection(path + ".population")).getKeys(false)) {
+                    try {
+                        PopulationRole role = PopulationRole.valueOf(roleKey.toUpperCase(Locale.ROOT));
+                        int count = yaml.getInt(path + ".population." + roleKey, 0);
+                        if (count > 0) burg.getPopulation().put(role, count);
+                    } catch (Exception ignored) {}
                 }
             }
+
+            // Food stats
+            burg.setBaseFoodCapacity(yaml.getDouble(path + ".food.baseFoodCapacity", 0.0));
+            burg.setLastFoodPoints(yaml.getDouble(path + ".food.lastFoodPoints", 0.0));
+            burg.setLastScanEpochSeconds(yaml.getLong(path + ".food.lastScanEpochSeconds", 0L));
+
+            // WorldId fixup if missing
+            // (Burg uses world UID from createFounding, so if it loaded, it’s fine.)
 
             result.put(id, burg);
         }
@@ -107,15 +163,36 @@ public class BurgStorage {
         yaml.set(path + ".name", burg.getName());
         yaml.set(path + ".leader", burg.getLeader().toString());
 
+        yaml.set(path + ".worldId", burg.getWorldId().toString());
+        yaml.set(path + ".currency", burg.getAdoptedCurrencyCode());
+        yaml.set(path + ".polityStage", burg.getPolityStage().name());
+        yaml.set(path + ".rulerTitle", burg.getRulerTitle());
+
+        // Home
+        yaml.set(path + ".home.x", burg.getHome().getX());
+        yaml.set(path + ".home.y", burg.getHome().getY());
+        yaml.set(path + ".home.z", burg.getHome().getZ());
+        yaml.set(path + ".home.yaw", burg.getHome().getYaw());
+        yaml.set(path + ".home.pitch", burg.getHome().getPitch());
+
+        // Members
         List<String> members = burg.getMembers().stream().map(UUID::toString).toList();
         yaml.set(path + ".members", members);
 
-        yaml.set(path + ".treasury", burg.getTreasury());
-        yaml.set(path + ".morale", burg.getMorale());
-        yaml.set(path + ".banner", burg.hasBanner());
-
+        // Claims
         List<String> claims = burg.getClaims().stream().map(ChunkClaim::toKey).toList();
         yaml.set(path + ".claims", claims);
+
+        // Treasury balances
+        burg.getTreasuryBalances().forEach((code, bal) -> yaml.set(path + ".treasury." + code, bal));
+
+        // Population roles
+        burg.getPopulation().forEach((role, count) -> yaml.set(path + ".population." + role.name(), count));
+
+        // Food
+        yaml.set(path + ".food.baseFoodCapacity", burg.getBaseFoodCapacity());
+        yaml.set(path + ".food.lastFoodPoints", burg.getLastFoodPoints());
+        yaml.set(path + ".food.lastScanEpochSeconds", burg.getLastScanEpochSeconds());
 
         saveFile();
     }

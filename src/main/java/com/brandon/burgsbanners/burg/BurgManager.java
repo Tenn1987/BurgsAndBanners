@@ -1,6 +1,8 @@
 package com.brandon.burgsbanners.burg;
 
 import com.brandon.burgsbanners.burg.storage.BurgStorage;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
@@ -13,7 +15,7 @@ public class BurgManager {
     private final Map<String, Burg> burgsById = new HashMap<>();
     private final Map<UUID, String> memberToBurgId = new HashMap<>();
 
-    // Global index: chunk key -> burgId
+    // Global index: claim key -> burgId
     private final Map<String, String> claimKeyToBurgId = new HashMap<>();
 
     public BurgManager(JavaPlugin plugin, BurgStorage storage) {
@@ -47,6 +49,10 @@ public class BurgManager {
         }
     }
 
+    public void save(Burg burg) {
+        storage.saveBurg(burg);
+    }
+
     public Burg getBurgByMember(UUID playerId) {
         String id = memberToBurgId.get(playerId);
         return (id == null) ? null : burgsById.get(id);
@@ -56,43 +62,11 @@ public class BurgManager {
         return burgsById.values().stream().anyMatch(b -> b.getName().equalsIgnoreCase(name));
     }
 
-    public Burg createBurg(String name, UUID leader) {
-        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-
-        Burg burg = new Burg(id, name, leader);
-        burgsById.put(id, burg);
-
-        indexMembers(burg);
-        storage.saveBurg(burg);
-
-        return burg;
-    }
-
-    private void indexMembers(Burg burg) {
-        for (UUID member : burg.getMembers()) {
-            memberToBurgId.put(member, burg.getId());
-        }
-    }
-
-    public void save(Burg burg) {
-        storage.saveBurg(burg);
-    }
-
-    public int getClaimCost(Burg burg) {
-        // placeholder scaling rule
-        return 50 + (burg.getClaimCount() * 25);
-    }
-
-    public String getOwnerBurgId(ChunkClaim claim) {
-        return claimKeyToBurgId.get(claim.toKey());
-    }
-
     public boolean isClaimed(ChunkClaim claim) {
         return claimKeyToBurgId.containsKey(claim.toKey());
     }
 
     public boolean tryAddClaim(Burg burg, ChunkClaim claim) {
-        // already claimed by someone (including self)
         String owner = claimKeyToBurgId.get(claim.toKey());
         if (owner != null) return false;
 
@@ -115,5 +89,35 @@ public class BurgManager {
         claimKeyToBurgId.remove(claim.toKey());
         storage.saveBurg(burg);
         return true;
+    }
+
+    /**
+     * Founding flow: creates BURG stage city-state with adopted MPC currency,
+     * starter claims, government roles, treasury balances-only.
+     */
+    public Burg createBurgFounding(
+            String name,
+            UUID leader,
+            World world,
+            Location home,
+            String adoptedCurrencyCode,
+            Set<ChunkClaim> starterClaims
+    ) {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+
+        Burg burg = Burg.createFounding(id, name, leader, world, home, adoptedCurrencyCode, starterClaims);
+
+        burgsById.put(id, burg);
+
+        // Index members + claims
+        for (UUID member : burg.getMembers()) {
+            memberToBurgId.put(member, burg.getId());
+        }
+        for (ChunkClaim claim : burg.getClaims()) {
+            claimKeyToBurgId.put(claim.toKey(), burg.getId());
+        }
+
+        storage.saveBurg(burg);
+        return burg;
     }
 }
