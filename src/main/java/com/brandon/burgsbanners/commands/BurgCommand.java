@@ -22,7 +22,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
     private final FoodScanService foodScanService;
 
     private static final List<String> SUBS = List.of(
-            "help", "found", "info", "treasury", "claim", "unclaim"
+            "help", "found", "info", "treasury", "claim", "unclaim", "leave"
     );
 
     public BurgCommand(JavaPlugin plugin, BurgManager burgManager, MpcHook mpc, FoodScanService foodScanService) {
@@ -54,7 +54,8 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
 
-                if (!player.hasPermission("burg.found") && !player.hasPermission("burg.*")) {
+                // For pre-pre alpha you relaxed perms; keep the check if you want.
+                if (!player.hasPermission("burg.found") && !player.hasPermission("burg.*") && !player.isOp()) {
                     sender.sendMessage(c("&cYou lack permission: &fburg.found"));
                     return true;
                 }
@@ -71,7 +72,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
 
-                // Validate name (3-24 like before)
+                // Validate name (3-24)
                 String name = args[1].trim();
                 if (name.length() < 3 || name.length() > 24) {
                     sender.sendMessage(c("&cBurg name must be 3–24 characters."));
@@ -105,7 +106,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
 
-                // Starter 3x3 chunk claim (radius 1 by default)
+                // Starter claim radius
                 int starterRadius = plugin.getConfig().getInt("founding.starterChunkRadius", 1);
 
                 Set<ChunkClaim> starterClaims = new HashSet<>();
@@ -123,7 +124,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                     }
                 }
 
-                // Create burg with adopted currency, polity stage BURG, gov roles, treasury map, home, claims
+                // Create burg
                 Burg burg = burgManager.createBurgFounding(
                         name,
                         player.getUniqueId(),
@@ -192,7 +193,6 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             }
 
             case "claim" -> {
-                // keep your existing claim system; this is unchanged except for world UUID claim keys
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage(c("&cOnly players can use this command."));
                     return true;
@@ -230,6 +230,46 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
+            case "leave" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(c("&cOnly players can use this command."));
+                    return true;
+                }
+
+                Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+                if (burg == null) {
+                    sender.sendMessage(c("&cYou are not in a burg."));
+                    return true;
+                }
+
+                // Leader rule: only OP can orphan the mayorship
+                UUID leader = burg.getLeader();
+                boolean isLeader = leader != null && leader.equals(player.getUniqueId());
+
+                if (isLeader && !player.isOp()) {
+                    sender.sendMessage(c("&cYou are the Lord-Mayor of &f" + burg.getName() + "&c."));
+                    sender.sendMessage(c("&7You cannot leave while ruling. (Only OP can orphan leadership during testing.)"));
+                    return true;
+                }
+
+                boolean removed = burg.getMembers().remove(player.getUniqueId());
+                if (!removed) {
+                    // Shouldn't happen if indices are consistent, but keep it safe.
+                    sender.sendMessage(c("&cYou could not be removed (already not a member?)."));
+                    return true;
+                }
+
+                burgManager.onMemberLeft(burg, player.getUniqueId());
+
+                if (isLeader) {
+                    sender.sendMessage(c("&eYou have left &f" + burg.getName() + "&e as OP."));
+                    sender.sendMessage(c("&cWarning: this burg is now orphaned (leader left)."));
+                } else {
+                    sender.sendMessage(c("&aYou have left the burg: &f" + burg.getName()));
+                }
+                return true;
+            }
+
             default -> {
                 sender.sendMessage(c("&cUnknown subcommand. Try &f/" + label + " help"));
                 return true;
@@ -244,6 +284,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(c("&f/" + label + " treasury &7- View balances"));
         sender.sendMessage(c("&f/" + label + " claim &7- Claim current chunk"));
         sender.sendMessage(c("&f/" + label + " unclaim &7- Unclaim current chunk"));
+        sender.sendMessage(c("&f/" + label + " leave &7- Leave your burg (leader requires OP)"));
     }
 
     private String c(String s) {

@@ -5,6 +5,7 @@ import com.brandon.burgsbanners.burg.food.FoodScanService;
 import com.brandon.burgsbanners.burg.food.FoodScanScheduler;
 import com.brandon.burgsbanners.burg.storage.BurgStorage;
 import com.brandon.burgsbanners.commands.BurgCommand;
+import com.brandon.burgsbanners.listeners.BurgTerritoryListener;
 import com.brandon.burgsbanners.mpc.MpcHook;
 import com.brandon.burgsbanners.mpc.MultiPolarCurrencyHook;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -52,6 +53,9 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
             getCommand("city").setExecutor(burgCommand);
             getCommand("city").setTabCompleter(burgCommand);
         }
+
+        // Territory entry UI
+        getServer().getPluginManager().registerEvents(new BurgTerritoryListener(burgManager), this);
 
         getLogger().info("Burgs & Banners enabled.");
     }

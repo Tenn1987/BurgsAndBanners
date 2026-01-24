@@ -5,6 +5,10 @@ founding:
   # 1 = 3x3, 2 = 5x5, etc
   starterChunkRadius: 1
 
+  # initial treasury funding required to found a burg
+  # deducted from the founder's MPC wallet
+  initialFunding: 500
+
 foodScan:
   # sampling resolution inside each claimed chunk
   # 1 = scan every column (slowest, most accurate)

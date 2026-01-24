@@ -66,6 +66,15 @@ public class BurgManager {
         return claimKeyToBurgId.containsKey(claim.toKey());
     }
 
+    /**
+     * O(1) lookup: which burg owns this claim?
+     * Returns null for wilderness.
+     */
+    public Burg getBurgByClaim(ChunkClaim claim) {
+        String id = claimKeyToBurgId.get(claim.toKey());
+        return (id == null) ? null : burgsById.get(id);
+    }
+
     public boolean tryAddClaim(Burg burg, ChunkClaim claim) {
         String owner = claimKeyToBurgId.get(claim.toKey());
         if (owner != null) return false;
@@ -120,4 +129,10 @@ public class BurgManager {
         storage.saveBurg(burg);
         return burg;
     }
+
+    public void onMemberLeft(Burg burg, UUID member) {
+        memberToBurgId.remove(member);
+        storage.saveBurg(burg);
+    }
+
 }
