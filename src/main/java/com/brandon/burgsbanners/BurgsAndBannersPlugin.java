@@ -5,6 +5,7 @@ import com.brandon.burgsbanners.burg.food.FoodScanService;
 import com.brandon.burgsbanners.burg.food.FoodScanScheduler;
 import com.brandon.burgsbanners.burg.storage.BurgStorage;
 import com.brandon.burgsbanners.commands.BurgCommand;
+import com.brandon.burgsbanners.dynmap.DynmapHook;
 import com.brandon.burgsbanners.mpc.MpcHook;
 import com.brandon.burgsbanners.mpc.MultiPolarCurrencyHook;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -17,6 +18,7 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
     private MpcHook mpcHook;
     private FoodScanService foodScanService;
     private FoodScanScheduler foodScanScheduler;
+    private DynmapHook dynmapHook;
 
     @Override
     public void onEnable() {
@@ -54,7 +56,12 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         }
 
         getLogger().info("Burgs & Banners enabled.");
+
+        dynmapHook = new DynmapHook(this, burgManager);
+        dynmapHook.hook();
+
     }
+
 
     @Override
     public void onDisable() {
@@ -64,5 +71,8 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         if (burgManager != null) {
             burgManager.saveAll();
         }
+
+        if (this.dynmapHook != null) this.dynmapHook.shutdown();
+
     }
 }

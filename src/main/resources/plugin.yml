@@ -1,9 +1,11 @@
 name: BurgsAndBanners
-version: 0.1.5
+version: 0.1.6
 main: com.brandon.burgsbanners.BurgsAndBannersPlugin
 api-version: "1.21"
 
 depend: [MultiPolarCurrency]
+softdepend: [dynmap]
+
 
 commands:
   burg:
