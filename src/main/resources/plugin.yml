@@ -1,5 +1,5 @@
 name: BurgsAndBanners
-version: 0.1.3
+version: 0.1.5
 main: com.brandon.burgsbanners.BurgsAndBannersPlugin
 api-version: "1.21"
 

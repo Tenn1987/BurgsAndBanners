@@ -23,6 +23,14 @@ public final class ChunkClaim {
     public int getChunkX() { return chunkX; }
     public int getChunkZ() { return chunkZ; }
 
+
+    // --- compatibility aliases (older code / storage) ---
+    public int getX() { return chunkX; }
+    public int getZ() { return chunkZ; }
+    public UUID worldId() { return worldId; }
+    public int x() { return chunkX; }
+    public int z() { return chunkZ; }
+
     public String toKey() {
         // stable string key for maps & YAML: worldUUID:x:z
         return worldId + ":" + chunkX + ":" + chunkZ;

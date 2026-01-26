@@ -13,3 +13,10 @@ Thumbs.db
 
 # ===== Embedded dev server =====
 /server/
+
+# (optional) if present
+/cache/
+/libraries/
+/logs/
+/plugins/
+/versions/
