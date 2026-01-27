@@ -63,12 +63,14 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
                 this
         );
 
-
         dynmapHook = new DynmapHook(this, burgManager);
         dynmapHook.hook();
-
     }
 
+    // ✅ THIS MUST BE OUTSIDE onEnable()
+    public BurgManager getBurgManager() {
+        return burgManager;
+    }
 
     @Override
     public void onDisable() {
@@ -80,6 +82,5 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         }
 
         if (this.dynmapHook != null) this.dynmapHook.shutdown();
-
     }
 }
