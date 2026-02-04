@@ -65,6 +65,12 @@ public class BurgStorage {
             b.setRulerTitle(cs.getString("rulerTitle", "Lord-Mayor"));
             b.setAdoptedCurrencyCode(cs.getString("currency", "SHEKEL"));
 
+            // treasury identity (institutional wallet)
+            String treasuryUuid = cs.getString("treasuryUuid", null);
+            if (treasuryUuid != null && !treasuryUuid.isBlank()) {
+                try { b.setTreasuryUuid(UUID.fromString(treasuryUuid)); } catch (Exception ignored) { }
+            }
+
             // home
             String worldStr = cs.getString("home.world", null);
             if (worldStr != null) {
@@ -90,7 +96,7 @@ public class BurgStorage {
                 if (cc != null) b.addClaim(cc);
             }
 
-            // treasury
+            // treasury balances
             ConfigurationSection t = cs.getConfigurationSection("treasury");
             if (t != null) {
                 for (String code : t.getKeys(false)) {
@@ -146,6 +152,7 @@ public class BurgStorage {
             cs.set("leaderUuid", b.getLeaderUuid() == null ? null : b.getLeaderUuid().toString());
             cs.set("rulerTitle", b.getRulerTitle());
             cs.set("currency", b.getAdoptedCurrencyCode());
+            cs.set("treasuryUuid", b.getTreasuryUuid() == null ? null : b.getTreasuryUuid().toString());
 
             if (b.getWorldId() != null) {
                 cs.set("home.world", b.getWorldId().toString());
@@ -177,8 +184,8 @@ public class BurgStorage {
 
             if (!b.getPlots().isEmpty()) {
                 ConfigurationSection plots = cs.createSection("plots");
-                b.getPlots().forEach((id, p) -> {
-                    ConfigurationSection ps = plots.createSection(id);
+                b.getPlots().forEach((pid, p) -> {
+                    ConfigurationSection ps = plots.createSection(pid);
                     ps.set("name", p.getName());
                     ps.set("world", p.getWorldId().toString());
                     ps.set("minX", p.getMinX()); ps.set("minY", p.getMinY()); ps.set("minZ", p.getMinZ());

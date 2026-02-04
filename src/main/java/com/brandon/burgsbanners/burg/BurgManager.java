@@ -31,7 +31,17 @@ public class BurgManager {
         Map<String, Burg> loaded = storage.loadAllBurgs();
         burgsById.putAll(loaded);
 
+        int migratedTreasuries = 0;
+
         for (Burg burg : loaded.values()) {
+
+            // ✅ MIGRATION: ensure every burg has a persistent treasury UUID
+            if (burg.getTreasuryUuid() == null) {
+                burg.setTreasuryUuid(UUID.randomUUID());
+                storage.saveBurg(burg);
+                migratedTreasuries++;
+            }
+
             for (UUID member : burg.getMembers()) {
                 memberToBurgId.put(member, burg.getId());
             }
@@ -41,6 +51,9 @@ public class BurgManager {
         }
 
         plugin.getLogger().info("Loaded " + burgsById.size() + " burg(s).");
+        if (migratedTreasuries > 0) {
+            plugin.getLogger().info("Migrated " + migratedTreasuries + " burg treasury UUID(s).");
+        }
     }
 
     public void saveAll() {
@@ -73,6 +86,28 @@ public class BurgManager {
     public Burg getBurgByClaim(ChunkClaim claim) {
         String id = claimKeyToBurgId.get(claim.toKey());
         return (id == null) ? null : burgsById.get(id);
+    }
+
+    /**
+     * Convenience: burg at player location (or null if wilderness).
+     */
+    public Burg getBurgAt(Location loc) {
+        if (loc == null || loc.getWorld() == null) return null;
+
+        int cx = loc.getBlockX() >> 4;
+        int cz = loc.getBlockZ() >> 4;
+
+        ChunkClaim claim = new ChunkClaim(loc.getWorld().getUID(), cx, cz);
+        return getBurgByClaim(claim);
+    }
+
+    /**
+     * ✅ The ONE true treasury wallet identity for the burg at this location.
+     * Returns null in wilderness.
+     */
+    public UUID treasuryIdAt(Location loc) {
+        Burg b = getBurgAt(loc);
+        return (b == null) ? null : b.getTreasuryUuid();
     }
 
     public boolean tryAddClaim(Burg burg, ChunkClaim claim) {
@@ -116,6 +151,11 @@ public class BurgManager {
 
         Burg burg = Burg.createFounding(id, name, leader, world, home, adoptedCurrencyCode, starterClaims);
 
+        // Ensure treasury UUID exists (should, but belt+suspenders)
+        if (burg.getTreasuryUuid() == null) {
+            burg.setTreasuryUuid(UUID.randomUUID());
+        }
+
         burgsById.put(id, burg);
 
         // Index members + claims
@@ -134,5 +174,4 @@ public class BurgManager {
         memberToBurgId.remove(member);
         storage.saveBurg(burg);
     }
-
 }

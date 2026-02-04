@@ -1,7 +1,6 @@
 package com.brandon.burgsbanners.burg;
 
 import com.brandon.burgsbanners.burg.plot.Plot;
-
 import org.bukkit.Location;
 import org.bukkit.World;
 
@@ -13,6 +12,9 @@ public class Burg {
     private String name;
 
     private PolityStage polityStage = PolityStage.BURG;
+
+    // ✅ NEW: real institutional treasury identity (used by MPC wallets)
+    private UUID treasuryUuid;
 
     private UUID leaderUuid;                // may be null if orphaned by OP during testing
     private String rulerTitle = "Lord-Mayor";
@@ -43,7 +45,7 @@ public class Burg {
         this.id = id;
     }
 
-    // ---- Factory used by BurgManager (this is what your error log is complaining about) ----
+    // ---- Factory used by BurgManager ----
     public static Burg createFounding(String id,
                                       String name,
                                       UUID leaderUuid,
@@ -55,6 +57,10 @@ public class Burg {
         Burg b = new Burg(id);
         b.name = name;
         b.polityStage = PolityStage.BURG;
+
+        // ✅ NEW: institutional treasury gets its own UUID at founding
+        b.treasuryUuid = UUID.randomUUID();
+
         b.leaderUuid = leaderUuid;
         b.rulerTitle = "Lord-Mayor";
         b.adoptedCurrencyCode = currencyCode == null ? "SHEKEL" : currencyCode.toUpperCase(Locale.ROOT);
@@ -80,11 +86,16 @@ public class Burg {
 
     // ---- Core getters/setters ----
     public String getId() { return id; }
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
     public PolityStage getPolityStage() { return polityStage; }
     public void setPolityStage(PolityStage polityStage) { this.polityStage = polityStage; }
+
+    // ✅ NEW
+    public UUID getTreasuryUuid() { return treasuryUuid; }
+    public void setTreasuryUuid(UUID treasuryUuid) { this.treasuryUuid = treasuryUuid; }
 
     public UUID getLeaderUuid() { return leaderUuid; }
     public void setLeaderUuid(UUID leaderUuid) { this.leaderUuid = leaderUuid; }
@@ -120,7 +131,6 @@ public class Burg {
     public boolean removeClaim(ChunkClaim claim) { return claims.remove(claim); }
 
     public boolean hasClaim(ChunkClaim claim) { return claims.contains(claim); }
-
     public int getClaimCount() { return claims.size(); }
 
     public Map<String, Long> getTreasuryBalances() { return treasuryBalances; }
