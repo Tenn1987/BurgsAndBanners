@@ -71,6 +71,11 @@ public class BurgStorage {
                 try { b.setTreasuryUuid(UUID.fromString(treasuryUuid)); } catch (Exception ignored) { }
             }
 
+            // ✅ tax policy
+            // stored as a rate (0.05 = 5%), clamp handled in Burg setter
+            double salesRate = cs.getDouble("tax.sales", 0.05);
+            b.setSalesTaxRate(salesRate);
+
             // home
             String worldStr = cs.getString("home.world", null);
             if (worldStr != null) {
@@ -153,6 +158,9 @@ public class BurgStorage {
             cs.set("rulerTitle", b.getRulerTitle());
             cs.set("currency", b.getAdoptedCurrencyCode());
             cs.set("treasuryUuid", b.getTreasuryUuid() == null ? null : b.getTreasuryUuid().toString());
+
+            // ✅ tax policy
+            cs.set("tax.sales", b.getSalesTaxRate());
 
             if (b.getWorldId() != null) {
                 cs.set("home.world", b.getWorldId().toString());

@@ -5,6 +5,7 @@ import com.brandon.burgsbanners.burg.food.FoodScanService;
 import com.brandon.burgsbanners.burg.food.FoodScanScheduler;
 import com.brandon.burgsbanners.burg.storage.BurgStorage;
 import com.brandon.burgsbanners.commands.BurgCommand;
+import com.brandon.burgsbanners.commands.BurgTaxCommand;
 import com.brandon.burgsbanners.dynmap.DynmapHook;
 import com.brandon.burgsbanners.listeners.BurgTerritoryListener;
 import com.brandon.burgsbanners.mpc.MpcHook;
@@ -56,6 +57,15 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
             getCommand("city").setTabCompleter(burgCommand);
         }
 
+        // ✅ NEW: /burgtax
+        BurgTaxCommand burgTax = new BurgTaxCommand(burgManager);
+        if (getCommand("burgtax") != null) {
+            getCommand("burgtax").setExecutor(burgTax);
+            getCommand("burgtax").setTabCompleter(burgTax);
+        } else {
+            getLogger().severe("Command 'burgtax' not found in plugin.yml!");
+        }
+
         getLogger().info("Burgs & Banners enabled.");
 
         getServer().getPluginManager().registerEvents(
@@ -67,7 +77,6 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         dynmapHook.hook();
     }
 
-    // ✅ THIS MUST BE OUTSIDE onEnable()
     public BurgManager getBurgManager() {
         return burgManager;
     }
