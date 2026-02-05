@@ -1,5 +1,5 @@
 name: BurgsAndBanners
-version: 0.1.10
+version: 0.2.0
 main: com.brandon.burgsbanners.BurgsAndBannersPlugin
 api-version: "1.21"
 
@@ -11,6 +11,9 @@ commands:
   burg:
     description: Burg & Banner civic command
     usage: /burg found <name> <currencyCode>
+  burgtax:
+    description: Manage local burg taxes (must be inside burg limits).
+    usage: /burgtax sale [set <percent>]
   city:
     description: Alias for /burg
     usage: /city found <name> <currencyCode>

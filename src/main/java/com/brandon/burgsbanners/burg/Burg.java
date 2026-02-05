@@ -13,7 +13,7 @@ public class Burg {
 
     private PolityStage polityStage = PolityStage.BURG;
 
-    // ✅ NEW: real institutional treasury identity (used by MPC wallets)
+    // ✅ institutional treasury identity (used by MPC wallets)
     private UUID treasuryUuid;
 
     private UUID leaderUuid;                // may be null if orphaned by OP during testing
@@ -41,6 +41,11 @@ public class Burg {
     // plots by id
     private final Map<String, Plot> plots = new LinkedHashMap<>();
 
+    // ✅ NEW: local sales tax policy (0.00 - 0.35)
+    private double salesTaxRate = 0.05; // default 5%
+
+    public static final double MAX_SALES_TAX = 0.35;
+
     public Burg(String id) {
         this.id = id;
     }
@@ -58,7 +63,7 @@ public class Burg {
         b.name = name;
         b.polityStage = PolityStage.BURG;
 
-        // ✅ NEW: institutional treasury gets its own UUID at founding
+        // ✅ institutional treasury gets its own UUID at founding
         b.treasuryUuid = UUID.randomUUID();
 
         b.leaderUuid = leaderUuid;
@@ -80,7 +85,9 @@ public class Burg {
         b.population.put(PopulationRole.LABORER, 1);
         b.population.put(PopulationRole.MERCHANT, 1);
 
-        // treasury starts empty unless founding funding is added by command/manager
+        // default sales tax (can be changed via /burgtax sale set)
+        b.salesTaxRate = 0.05;
+
         return b;
     }
 
@@ -93,7 +100,6 @@ public class Burg {
     public PolityStage getPolityStage() { return polityStage; }
     public void setPolityStage(PolityStage polityStage) { this.polityStage = polityStage; }
 
-    // ✅ NEW
     public UUID getTreasuryUuid() { return treasuryUuid; }
     public void setTreasuryUuid(UUID treasuryUuid) { this.treasuryUuid = treasuryUuid; }
 
@@ -126,7 +132,6 @@ public class Burg {
     public Set<UUID> getMembers() { return members; }
     public Set<ChunkClaim> getClaims() { return claims; }
 
-    // ---- These two are required by your BurgManager compile errors ----
     public boolean addClaim(ChunkClaim claim) { return claims.add(claim); }
     public boolean removeClaim(ChunkClaim claim) { return claims.remove(claim); }
 
@@ -170,7 +175,6 @@ public class Burg {
     public long getLastScanEpochSeconds() { return lastScanEpochSeconds; }
     public void setLastScanEpochSeconds(long lastScanEpochSeconds) { this.lastScanEpochSeconds = lastScanEpochSeconds; }
 
-    // ---- Plots (used by your BurgCommand compile errors) ----
     public Plot getPlot(String id) {
         if (id == null) return null;
         return plots.get(id.toLowerCase(Locale.ROOT));
@@ -181,5 +185,22 @@ public class Burg {
     public void putPlot(Plot plot) {
         if (plot == null || plot.getId() == null) return;
         plots.put(plot.getId().toLowerCase(Locale.ROOT), plot);
+    }
+
+    // =========================
+    // ✅ Sales Tax Policy
+    // =========================
+
+    /** Stored as rate (0.05 = 5%). */
+    public double getSalesTaxRate() {
+        return salesTaxRate;
+    }
+
+    /** Rate is clamped to 0.00 - 0.35 */
+    public void setSalesTaxRate(double rate) {
+        if (!Double.isFinite(rate)) return;
+        if (rate < 0) rate = 0;
+        if (rate > MAX_SALES_TAX) rate = MAX_SALES_TAX;
+        this.salesTaxRate = rate;
     }
 }
