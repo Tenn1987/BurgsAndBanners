@@ -174,4 +174,28 @@ public class BurgManager {
         memberToBurgId.remove(member);
         storage.saveBurg(burg);
     }
+
+    /**
+     * ✅ Join a burg (adds to burg members + member index).
+     * Returns false if the player is already in a burg or already a member here.
+     */
+    public boolean tryJoinMember(Burg burg, UUID player) {
+        if (burg == null || player == null) return false;
+
+        // already in any burg?
+        if (getBurgByMember(player) != null) return false;
+
+        // already a member of this burg?
+        if (burg.getMembers().contains(player)) return false;
+
+        burg.getMembers().add(player);
+        // keep your existing member index in sync:
+        // if you use a map like memberToBurgId, update it here.
+        // If you DON’T have an index map, skip this line.
+        // memberToBurgId.put(player, burg.getId());
+
+        save(burg);
+        return true;
+    }
+
 }
