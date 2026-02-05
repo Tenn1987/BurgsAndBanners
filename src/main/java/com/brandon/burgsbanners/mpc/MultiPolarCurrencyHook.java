@@ -40,7 +40,8 @@ public final class MultiPolarCurrencyHook implements MpcHook {
     // WalletService methods
     private Method wsBalance;         // balance(UUID, String) -> long
     private Method wsWithdraw;        // withdraw(UUID, String, long) -> boolean
-    private Method wsDeposit;         // deposit(UUID, String, long) -> void
+    private Method wsDeposit;         // deposit(UUID, String, long) -> void/boolean
+    private Method wsSave;            // save() -> void
 
     private boolean hooked = false;
 
@@ -79,14 +80,11 @@ public final class MultiPolarCurrencyHook implements MpcHook {
             this.cmAll = currencyManager.getClass().getMethod("all");
 
             // Discover Currency record accessor: code()
-            // (We don't want to hard compile against MPC here.)
             Collection<?> currencies = safeAllCurrencies();
             if (currencies != null && !currencies.isEmpty()) {
                 Object sample = currencies.iterator().next();
                 this.currencyCode = sample.getClass().getMethod("code");
             } else {
-                // Fall back: try to resolve accessor by name on declared return type if possible.
-                // We'll attempt later when we have a Currency instance.
                 this.currencyCode = null;
             }
 
@@ -94,6 +92,7 @@ public final class MultiPolarCurrencyHook implements MpcHook {
             this.wsBalance = walletService.getClass().getMethod("balance", UUID.class, String.class);
             this.wsWithdraw = walletService.getClass().getMethod("withdraw", UUID.class, String.class, long.class);
             this.wsDeposit = walletService.getClass().getMethod("deposit", UUID.class, String.class, long.class);
+            this.wsSave = walletService.getClass().getMethod("save");
 
             hooked = true;
             log.info("[BAB] Hooked into MultiPolarCurrency via reflection (CurrencyManager + WalletService).");
@@ -167,11 +166,15 @@ public final class MultiPolarCurrencyHook implements MpcHook {
         }
     }
 
+    /* =========================
+       UUID operations
+       ========================= */
+
     @Override
-    public long getBalance(Player player, String currencyCode) {
-        if (!isHooked() || player == null || currencyCode == null) return 0L;
+    public long getBalance(UUID accountId, String currencyCode) {
+        if (!isHooked() || accountId == null || currencyCode == null) return 0L;
         try {
-            Object r = wsBalance.invoke(walletService, player.getUniqueId(), currencyCode.trim().toUpperCase(Locale.ROOT));
+            Object r = wsBalance.invoke(walletService, accountId, currencyCode.trim().toUpperCase(Locale.ROOT));
             if (r instanceof Long l) return l;
             if (r instanceof Number n) return n.longValue();
             return 0L;
@@ -181,27 +184,61 @@ public final class MultiPolarCurrencyHook implements MpcHook {
     }
 
     @Override
-    public boolean withdraw(Player player, String currencyCode, long amount) {
-        if (!isHooked() || player == null || currencyCode == null) return false;
+    public boolean withdraw(UUID accountId, String currencyCode, long amount) {
+        if (!isHooked() || accountId == null || currencyCode == null) return false;
         if (amount <= 0) return true;
         try {
-            Object r = wsWithdraw.invoke(walletService, player.getUniqueId(), currencyCode.trim().toUpperCase(Locale.ROOT), amount);
-            return (r instanceof Boolean b) ? b : false;
+            Object r = wsWithdraw.invoke(walletService, accountId, currencyCode.trim().toUpperCase(Locale.ROOT), amount);
+            boolean ok = (r instanceof Boolean b) ? b : false;
+            if (ok) safeSave();
+            return ok;
         } catch (Throwable t) {
             return false;
         }
     }
 
     @Override
-    public boolean deposit(Player player, String currencyCode, long amount) {
-        if (!isHooked() || player == null || currencyCode == null) return false;
+    public boolean deposit(UUID accountId, String currencyCode, long amount) {
+        if (!isHooked() || accountId == null || currencyCode == null) return false;
         if (amount <= 0) return true;
         try {
-            Object r = wsDeposit.invoke(walletService, player.getUniqueId(), currencyCode.trim().toUpperCase(Locale.ROOT), amount);
-            // MPC deposit is void in your sources, but tolerate boolean/void.
-            return !(r instanceof Boolean) || (Boolean) r;
+            Object r = wsDeposit.invoke(walletService, accountId, currencyCode.trim().toUpperCase(Locale.ROOT), amount);
+            boolean ok = !(r instanceof Boolean) || (Boolean) r;
+            if (ok) safeSave();
+            return ok;
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    @Override
+    public void touch(UUID accountId, String currencyCode) {
+        getBalance(accountId, currencyCode);
+        safeSave();
+    }
+
+    private void safeSave() {
+        try {
+            if (wsSave != null) wsSave.invoke(walletService);
+        } catch (Throwable ignored) { }
+    }
+
+    /* =========================
+       Player convenience overrides (optional; keep for clarity)
+       ========================= */
+
+    @Override
+    public long getBalance(Player player, String currencyCode) {
+        return (player == null) ? 0L : getBalance(player.getUniqueId(), currencyCode);
+    }
+
+    @Override
+    public boolean withdraw(Player player, String currencyCode, long amount) {
+        return player != null && withdraw(player.getUniqueId(), currencyCode, amount);
+    }
+
+    @Override
+    public boolean deposit(Player player, String currencyCode, long amount) {
+        return player != null && deposit(player.getUniqueId(), currencyCode, amount);
     }
 }

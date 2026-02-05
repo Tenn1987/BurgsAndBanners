@@ -41,7 +41,7 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         this.foodScanScheduler = new FoodScanScheduler(this, burgManager, burgStorage, foodScanService);
         this.foodScanScheduler.start();
 
-        BurgCommand burgCommand = new BurgCommand(this, burgManager, mpcHook, foodScanService);
+        BurgCommand burgCommand = new BurgCommand(this, burgManager, foodScanService, mpcHook);
 
         if (getCommand("burg") != null) {
             getCommand("burg").setExecutor(burgCommand);
