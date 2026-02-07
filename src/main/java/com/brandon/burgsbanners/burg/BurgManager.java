@@ -198,4 +198,10 @@ public class BurgManager {
         return true;
     }
 
+    public double getMoneychangerFeeAt(Location loc) {
+        Burg burg = getBurgAt(loc);
+        return burg != null ? burg.getMoneychangerFeeRate() : 0.0;
+    }
+
+
 }

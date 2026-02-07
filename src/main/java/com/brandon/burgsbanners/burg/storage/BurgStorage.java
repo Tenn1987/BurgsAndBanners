@@ -76,6 +76,14 @@ public class BurgStorage {
             double salesRate = cs.getDouble("tax.sales", 0.05);
             b.setSalesTaxRate(salesRate);
 
+            // ✅ moneychanger fee (separate from sales tax)
+// Backward compatible: read new key first, fall back to old key if present
+            double mcFee = cs.getDouble("tax.mcfee",
+                    cs.getDouble("moneychangerFeeRate", 0.0)
+            );
+            b.setMoneychangerFeeRate(mcFee);
+
+
             // home
             String worldStr = cs.getString("home.world", null);
             if (worldStr != null) {
@@ -159,8 +167,13 @@ public class BurgStorage {
             cs.set("currency", b.getAdoptedCurrencyCode());
             cs.set("treasuryUuid", b.getTreasuryUuid() == null ? null : b.getTreasuryUuid().toString());
 
-            // ✅ tax policy
+// sales tax (existing)
             cs.set("tax.sales", b.getSalesTaxRate());
+
+// moneychanger fee (new canonical key + legacy safety)
+            cs.set("tax.mcfee", b.getMoneychangerFeeRate());
+            cs.set("moneychangerFeeRate", b.getMoneychangerFeeRate()); // legacy
+
 
             if (b.getWorldId() != null) {
                 cs.set("home.world", b.getWorldId().toString());

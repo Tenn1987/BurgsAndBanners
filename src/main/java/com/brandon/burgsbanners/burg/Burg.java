@@ -90,6 +90,19 @@ public class Burg {
 
         return b;
     }
+    // --- Moneychanger fee (separate from sales tax) ---
+    public static final double MAX_MONEYCHANGER_FEE = 0.25; // 25% cap
+
+    private double moneychangerFeeRate = 0.0;
+
+    public double getMoneychangerFeeRate() {
+        return moneychangerFeeRate;
+    }
+
+    public void setMoneychangerFeeRate(double rate) {
+        this.moneychangerFeeRate = Math.max(0.0, Math.min(MAX_MONEYCHANGER_FEE, rate));
+    }
+
 
     // ---- Core getters/setters ----
     public String getId() { return id; }
