@@ -12,6 +12,10 @@ import com.brandon.burgsbanners.mint.CoinsmithAnvilListener;
 import com.brandon.burgsbanners.mint.CoinsmithGUIListener;
 import com.brandon.burgsbanners.mpc.MpcHook;
 import com.brandon.burgsbanners.mpc.MultiPolarCurrencyHook;
+
+import com.brandon.multipolarcurrency.MultiPolarCurrencyPlugin;
+
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class BurgsAndBannersPlugin extends JavaPlugin {
@@ -34,7 +38,7 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         // Load burgs from burgs.yml
         burgManager.loadAll();
 
-        // MPC hook (MultiPolarCurrency)
+        // MPC hook (MultiPolarCurrency) - your existing hook
         this.mpcHook = new MultiPolarCurrencyHook(getLogger());
 
         // Food scan
@@ -73,9 +77,15 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         // Territory / claims listener
         getServer().getPluginManager().registerEvents(new BurgTerritoryListener(burgManager), this);
 
-        // ✅ Coinsmith (anvil + GUI)
-        getServer().getPluginManager().registerEvents(new CoinsmithGUIListener(this, burgManager), this);
-        getServer().getPluginManager().registerEvents(new CoinsmithAnvilListener(this, burgManager), this);
+        // ✅ Coinsmith (only enable if MPC exists)
+        Plugin p = getServer().getPluginManager().getPlugin("MultiPolarCurrency");
+        if (p instanceof MultiPolarCurrencyPlugin mpc) {
+            getServer().getPluginManager().registerEvents(new CoinsmithGUIListener(this, burgManager, mpc), this);
+            getServer().getPluginManager().registerEvents(new CoinsmithAnvilListener(this, burgManager), this);
+            getLogger().info("[Coinsmith] Enabled (requires anvil sign).");
+        } else {
+            getLogger().warning("[Coinsmith] Disabled (MultiPolarCurrency not found).");
+        }
 
         // Dynmap
         dynmapHook = new DynmapHook(this, burgManager);
@@ -94,7 +104,6 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         if (burgManager != null) {
             burgManager.saveAll();
         }
-
         if (this.dynmapHook != null) this.dynmapHook.shutdown();
     }
 }

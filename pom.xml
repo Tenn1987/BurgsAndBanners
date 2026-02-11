@@ -41,7 +41,7 @@
         <dependency>
             <groupId>com.brandon</groupId>
             <artifactId>MultiPolarCurrency</artifactId>
-            <version>0.2.5</version>
+            <version>0.2.6</version>
             <scope>provided</scope>
         </dependency>
 

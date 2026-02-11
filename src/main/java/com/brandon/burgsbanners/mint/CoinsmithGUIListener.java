@@ -4,12 +4,12 @@ import com.brandon.burgsbanners.BurgsAndBannersPlugin;
 import com.brandon.burgsbanners.burg.Burg;
 import com.brandon.burgsbanners.burg.BurgManager;
 
+import com.brandon.multipolarcurrency.MultiPolarCurrencyPlugin;
 import com.brandon.multipolarcurrency.economy.currency.BackingType;
 import com.brandon.multipolarcurrency.economy.currency.Currency;
+import com.brandon.multipolarcurrency.economy.currency.CurrencyManager;
 import com.brandon.multipolarcurrency.economy.currency.PhysicalCurrencyFactory;
 
-
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -26,11 +26,10 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import org.bukkit.metadata.MetadataValue;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.java.JavaPlugin;
 
-import java.lang.reflect.Method;
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 
 public class CoinsmithGUIListener implements Listener {
 
@@ -50,13 +49,16 @@ public class CoinsmithGUIListener implements Listener {
     private final BurgsAndBannersPlugin babPlugin;
     private final BurgManager burgManager;
 
-    // MUST be MPC plugin instance so PDC keys match what /wallet expects
-    private final JavaPlugin mpcPlugin;
+    private final MultiPolarCurrencyPlugin mpcPlugin;
+    private final CurrencyManager currencyManager;
 
-    public CoinsmithGUIListener(BurgsAndBannersPlugin babPlugin, BurgManager burgManager) {
+    public CoinsmithGUIListener(BurgsAndBannersPlugin babPlugin,
+                                BurgManager burgManager,
+                                MultiPolarCurrencyPlugin mpcPlugin) {
         this.babPlugin = babPlugin;
         this.burgManager = burgManager;
-        this.mpcPlugin = resolveMpcPlugin();
+        this.mpcPlugin = mpcPlugin;
+        this.currencyManager = (mpcPlugin != null) ? mpcPlugin.getCurrencyManager() : null;
     }
 
     // Build GUI contents (called by anvil listener)
@@ -88,14 +90,12 @@ public class CoinsmithGUIListener implements Listener {
             if (raw != SLOT_INPUT) {
                 event.setCancelled(true);
             } else {
-                // still block double-click weirdness
                 if (event.getClick() == ClickType.DOUBLE_CLICK) event.setCancelled(true);
             }
         } else {
-            // bottom inv: block shift-click dumping into GUI
+            // bottom inventory: block shift-click dumping into GUI
             if (event.isShiftClick()) {
                 event.setCancelled(true);
-                tryShiftMoveToInput(player, top, event.getCurrentItem());
             }
             return;
         }
@@ -113,7 +113,7 @@ public class CoinsmithGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)) return;
+        if (!(event.getWhoClicked() instanceof Player)) return;
         if (event.getView() == null || event.getView().getTitle() == null) return;
         if (!event.getView().getTitle().startsWith(GUI_PREFIX)) return;
 
@@ -136,7 +136,7 @@ public class CoinsmithGUIListener implements Listener {
     }
 
     private void handleMint(Player player, Inventory gui) {
-        if (mpcPlugin == null) {
+        if (mpcPlugin == null || currencyManager == null) {
             player.sendMessage("§cMultiPolarCurrency not found. Mint is offline.");
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 0.8f);
             return;
@@ -155,9 +155,9 @@ public class CoinsmithGUIListener implements Listener {
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 0.8f);
             return;
         }
-        code = code.toUpperCase(Locale.ROOT);
+        code = code.trim().toUpperCase(Locale.ROOT);
 
-        Optional<Currency> currencyOpt = resolveCurrencyFromMpc(code);
+        Optional<Currency> currencyOpt = currencyManager.getCurrency(code);
         if (currencyOpt.isEmpty()) {
             player.sendMessage("§cCurrency not registered in MPC: §f" + code);
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 0.8f);
@@ -217,21 +217,21 @@ public class CoinsmithGUIListener implements Listener {
             return;
         }
 
-        // consume backing
-        input.setAmount((int) (input.getAmount() - REQUIRED_BACKING_ITEMS));
+        // Consume backing
+        input.setAmount(input.getAmount() - (int) REQUIRED_BACKING_ITEMS);
         if (input.getAmount() <= 0) gui.setItem(SLOT_INPUT, null);
 
-        // mint physical currency via MPC
+        // Mint physical coins via MPC (uses MPC plugin instance for correct PDC)
         List<ItemStack> mintedStacks = PhysicalCurrencyFactory.createPhysical(mpcPlugin, currency, MINTED_UNITS);
-        for (ItemStack s : mintedStacks) {
-            player.getInventory().addItem(s);
+        for (ItemStack stack : mintedStacks) {
+            player.getInventory().addItem(stack);
         }
 
-        // fee to treasury (in currency units)
+        // Fee to treasury (units of currency)
         burg.creditTreasury(code, FEE_UNITS);
         burgManager.save(burg);
 
-        // update preview
+        // Output preview (1 unit)
         gui.setItem(SLOT_OUTPUT, makePreview(currency));
 
         player.sendMessage("§aMinted §f" + MINTED_UNITS + " " + code + " §a(§fFee: " + FEE_UNITS + "§a → treasury)");
@@ -247,57 +247,6 @@ public class CoinsmithGUIListener implements Listener {
             }
         }
         return null;
-    }
-
-    private void tryShiftMoveToInput(Player player, Inventory gui, ItemStack clicked) {
-        if (clicked == null || clicked.getType().isAir()) return;
-
-        ItemStack input = gui.getItem(SLOT_INPUT);
-        if (input == null || input.getType().isAir()) {
-            gui.setItem(SLOT_INPUT, clicked.clone());
-            clicked.setAmount(0);
-        }
-    }
-
-    private JavaPlugin resolveMpcPlugin() {
-        Plugin p = Bukkit.getPluginManager().getPlugin("MultiPolarCurrency");
-        if (p instanceof JavaPlugin jp) return jp;
-
-        // fallback name if you renamed it
-        Plugin alt = Bukkit.getPluginManager().getPlugin("MPC");
-        if (alt instanceof JavaPlugin jp2) return jp2;
-
-        babPlugin.getLogger().warning("[Coinsmith] MultiPolarCurrency plugin not found.");
-        return null;
-    }
-
-    /**
-     * Uses reflection so BaB doesn't need to know MPC main class type.
-     * Requires MPC plugin to have getCurrencyManager() returning CurrencyManager.
-     */
-    private Optional<Currency> resolveCurrencyFromMpc(String code) {
-        if (mpcPlugin == null) return Optional.empty();
-
-        try {
-            Method getCM = mpcPlugin.getClass().getMethod("getCurrencyManager");
-            Object cmObj = getCM.invoke(mpcPlugin);
-            if (cmObj == null) return Optional.empty();
-
-            Method getCurrency = cmObj.getClass().getMethod("getCurrency", String.class);
-            Object optObj = getCurrency.invoke(cmObj, code);
-
-            if (optObj instanceof Optional) {
-                @SuppressWarnings("unchecked")
-                Optional<Currency> out = (Optional<Currency>) optObj;
-                return out;
-            }
-        } catch (NoSuchMethodException e) {
-            babPlugin.getLogger().warning("[Coinsmith] MPC plugin lacks getCurrencyManager(). Add it or use your MpcHook.");
-        } catch (Exception e) {
-            babPlugin.getLogger().warning("[Coinsmith] Currency lookup failed: " + e.getMessage());
-        }
-
-        return Optional.empty();
     }
 
     private static ItemStack filler() {
