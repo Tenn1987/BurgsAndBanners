@@ -8,6 +8,8 @@ import com.brandon.burgsbanners.commands.BurgCommand;
 import com.brandon.burgsbanners.commands.BurgTaxCommand;
 import com.brandon.burgsbanners.dynmap.DynmapHook;
 import com.brandon.burgsbanners.listeners.BurgTerritoryListener;
+import com.brandon.burgsbanners.mint.CoinsmithAnvilListener;
+import com.brandon.burgsbanners.mint.CoinsmithGUIListener;
 import com.brandon.burgsbanners.mpc.MpcHook;
 import com.brandon.burgsbanners.mpc.MultiPolarCurrencyHook;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -57,7 +59,7 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
             getCommand("city").setTabCompleter(burgCommand);
         }
 
-        // ✅ NEW: /burgtax
+        // /burgtax
         BurgTaxCommand burgTax = new BurgTaxCommand(burgManager);
         if (getCommand("burgtax") != null) {
             getCommand("burgtax").setExecutor(burgTax);
@@ -68,11 +70,14 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
 
         getLogger().info("Burgs & Banners enabled.");
 
-        getServer().getPluginManager().registerEvents(
-                new BurgTerritoryListener(burgManager),
-                this
-        );
+        // Territory / claims listener
+        getServer().getPluginManager().registerEvents(new BurgTerritoryListener(burgManager), this);
 
+        // ✅ Coinsmith (anvil + GUI)
+        getServer().getPluginManager().registerEvents(new CoinsmithGUIListener(this, burgManager), this);
+        getServer().getPluginManager().registerEvents(new CoinsmithAnvilListener(this, burgManager), this);
+
+        // Dynmap
         dynmapHook = new DynmapHook(this, burgManager);
         dynmapHook.hook();
     }
