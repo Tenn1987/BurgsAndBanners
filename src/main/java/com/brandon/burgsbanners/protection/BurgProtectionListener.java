@@ -18,6 +18,8 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.hanging.HangingBreakByEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.inventory.InventoryHolder;
 
 import java.util.HashMap;
@@ -185,6 +187,27 @@ public class BurgProtectionListener implements Listener {
             deny(p, "§cProtected land. §7Only the plot owner (or mayor) may damage that.");
         }
     }
+
+    /* ================== EXPLOSION PROTECTION ================== */
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityExplode(EntityExplodeEvent e) {
+
+        e.blockList().removeIf(block -> {
+            Burg burg = burgManager.getBurgAt(block.getLocation());
+            return burg != null; // remove blocks inside burg claims
+        });
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onBlockExplode(BlockExplodeEvent e) {
+
+        e.blockList().removeIf(block -> {
+            Burg burg = burgManager.getBurgAt(block.getLocation());
+            return burg != null;
+        });
+    }
+
 
     /* ================== FIRE (optional but nice) ================== */
 
