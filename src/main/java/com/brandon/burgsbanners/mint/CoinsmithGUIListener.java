@@ -3,38 +3,39 @@ package com.brandon.burgsbanners.mint;
 import com.brandon.burgsbanners.BurgsAndBannersPlugin;
 import com.brandon.burgsbanners.burg.Burg;
 import com.brandon.burgsbanners.burg.BurgManager;
-
 import com.brandon.multipolarcurrency.MultiPolarCurrencyPlugin;
 import com.brandon.multipolarcurrency.economy.currency.BackingType;
 import com.brandon.multipolarcurrency.economy.currency.Currency;
 import com.brandon.multipolarcurrency.economy.currency.CurrencyManager;
 import com.brandon.multipolarcurrency.economy.currency.PhysicalCurrencyFactory;
-
+import com.brandon.multipolarcurrency.economy.wallet.WalletService;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
-import org.bukkit.metadata.MetadataValue;
-
-import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
+import java.lang.reflect.Method;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class CoinsmithGUIListener implements Listener {
 
-    public static final String GUI_PREFIX = "§6Coinsmith";
-    public static final String META_BURG = "bab_coinsmith_burg";
+    // Session context (no deprecated metadata)
+    private static final Map<UUID, Burg> CONTEXT = new ConcurrentHashMap<>();
+
+    public static void bind(UUID playerId, Burg burg) {
+        if (playerId != null && burg != null) CONTEXT.put(playerId, burg);
+    }
 
     // Slots
     public static final int SLOT_INPUT = 11;
@@ -61,7 +62,6 @@ public class CoinsmithGUIListener implements Listener {
         this.currencyManager = (mpcPlugin != null) ? mpcPlugin.getCurrencyManager() : null;
     }
 
-    // Build GUI contents (called by anvil listener)
     public static void populate(Inventory inv) {
         for (int i = 0; i < inv.getSize(); i++) {
             if (i == SLOT_INPUT) continue;
@@ -74,14 +74,11 @@ public class CoinsmithGUIListener implements Listener {
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        if (event.getView() == null || event.getView().getTitle() == null) return;
 
-        String title = event.getView().getTitle();
-        if (!title.startsWith(GUI_PREFIX)) return;
+        String title = PlainTextComponentSerializer.plainText().serialize(event.getView().title());
+        if (title == null || !title.startsWith("Coinsmith")) return;
 
         Inventory top = event.getView().getTopInventory();
-        if (top == null) return;
-
         int raw = event.getRawSlot();
         boolean clickedTop = raw < top.getSize();
 
@@ -94,9 +91,7 @@ public class CoinsmithGUIListener implements Listener {
             }
         } else {
             // bottom inventory: block shift-click dumping into GUI
-            if (event.isShiftClick()) {
-                event.setCancelled(true);
-            }
+            if (event.isShiftClick()) event.setCancelled(true);
             return;
         }
 
@@ -113,9 +108,8 @@ public class CoinsmithGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (!(event.getWhoClicked() instanceof Player)) return;
-        if (event.getView() == null || event.getView().getTitle() == null) return;
-        if (!event.getView().getTitle().startsWith(GUI_PREFIX)) return;
+        String title = PlainTextComponentSerializer.plainText().serialize(event.getView().title());
+        if (title == null || !title.startsWith("Coinsmith")) return;
 
         // Only allow dragging into INPUT slot
         for (int slot : event.getRawSlots()) {
@@ -128,11 +122,10 @@ public class CoinsmithGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player player)) return;
-        if (event.getView() == null || event.getView().getTitle() == null) return;
-        if (!event.getView().getTitle().startsWith(GUI_PREFIX)) return;
+        String title = PlainTextComponentSerializer.plainText().serialize(event.getView().title());
+        if (title == null || !title.startsWith("Coinsmith")) return;
 
-        player.removeMetadata(META_BURG, babPlugin);
+        CONTEXT.remove(event.getPlayer().getUniqueId());
     }
 
     private void handleMint(Player player, Inventory gui) {
@@ -142,7 +135,7 @@ public class CoinsmithGUIListener implements Listener {
             return;
         }
 
-        Burg burg = getBurgFromPlayer(player);
+        Burg burg = CONTEXT.get(player.getUniqueId());
         if (burg == null) {
             player.sendMessage("§cMint error: burg context missing.");
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 0.8f);
@@ -221,30 +214,52 @@ public class CoinsmithGUIListener implements Listener {
         input.setAmount(input.getAmount() - (int) REQUIRED_BACKING_ITEMS);
         if (input.getAmount() <= 0) gui.setItem(SLOT_INPUT, null);
 
-        // Mint physical coins via MPC (uses MPC plugin instance for correct PDC)
+        // Mint physical coins to player (8 units)
         List<ItemStack> mintedStacks = PhysicalCurrencyFactory.createPhysical(mpcPlugin, currency, MINTED_UNITS);
         for (ItemStack stack : mintedStacks) {
             player.getInventory().addItem(stack);
         }
 
-        // Fee to treasury (units of currency)
+        // Ensure treasury UUID exists
+        if (burg.getTreasuryUuid() == null) {
+            burg.setTreasuryUuid(UUID.randomUUID());
+        }
+
+        // Credit BaB display ledger
         burg.creditTreasury(code, FEE_UNITS);
+
+        // Deposit into MPC treasury wallet (reflection getter so it compiles even if jar isn't refreshed yet)
+        boolean walletOk = false;
+        try {
+            WalletService ws = reflectWalletService(mpcPlugin);
+            if (ws != null) {
+                walletOk = ws.deposit(burg.getTreasuryUuid(), code, FEE_UNITS);
+            }
+        } catch (Throwable ignored) {
+            walletOk = false;
+        }
+
         burgManager.save(burg);
 
-        // Output preview (1 unit)
+        // Output preview
         gui.setItem(SLOT_OUTPUT, makePreview(currency));
 
-        player.sendMessage("§aMinted §f" + MINTED_UNITS + " " + code + " §a(§fFee: " + FEE_UNITS + "§a → treasury)");
+        player.sendMessage("§aMinted §f" + MINTED_UNITS + " " + code
+                + " §a(§fFee: " + FEE_UNITS + "§a → treasury" + (walletOk ? "" : " §c(wallet deposit failed)") + "§a)");
         player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_USE, 0.8f, 1.1f);
+
+        if (!walletOk) {
+            babPlugin.getLogger().warning("[Coinsmith] Treasury wallet deposit failed for burg "
+                    + burg.getName() + " treasury=" + burg.getTreasuryUuid() + " code=" + code + " amount=" + FEE_UNITS);
+        }
     }
 
-    private Burg getBurgFromPlayer(Player player) {
-        if (!player.hasMetadata(META_BURG)) return null;
-        for (MetadataValue v : player.getMetadata(META_BURG)) {
-            if (v.getOwningPlugin() == babPlugin) {
-                Object obj = v.value();
-                if (obj instanceof Burg b) return b;
-            }
+    private static WalletService reflectWalletService(MultiPolarCurrencyPlugin mpcPlugin) {
+        try {
+            Method m = mpcPlugin.getClass().getMethod("getWalletService");
+            Object o = m.invoke(mpcPlugin);
+            if (o instanceof WalletService ws) return ws;
+        } catch (Throwable ignored) {
         }
         return null;
     }
@@ -253,7 +268,7 @@ public class CoinsmithGUIListener implements Listener {
         ItemStack it = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta meta = it.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(" ");
+            meta.displayName(Component.text(" "));
             it.setItemMeta(meta);
         }
         return it;
@@ -263,11 +278,11 @@ public class CoinsmithGUIListener implements Listener {
         ItemStack it = new ItemStack(Material.LIME_WOOL);
         ItemMeta meta = it.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName("§aMint");
-            meta.setLore(List.of(
-                    "§7Consumes: §f" + REQUIRED_BACKING_ITEMS + " backing items",
-                    "§7Produces: §f" + MINTED_UNITS + " units",
-                    "§7Fee → Treasury: §f" + FEE_UNITS + " unit"
+            meta.displayName(Component.text("§aMint"));
+            meta.lore(List.of(
+                    Component.text("§7Consumes: §f" + REQUIRED_BACKING_ITEMS + " backing items"),
+                    Component.text("§7Produces: §f" + MINTED_UNITS + " units"),
+                    Component.text("§7Fee → Treasury: §f" + FEE_UNITS + " unit")
             ));
             it.setItemMeta(meta);
         }
@@ -278,15 +293,15 @@ public class CoinsmithGUIListener implements Listener {
         ItemStack it = new ItemStack(Material.PAPER);
         ItemMeta meta = it.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName("§eOutput Preview");
-            meta.setLore(List.of("§7Put the correct backing material in the input slot."));
+            meta.displayName(Component.text("§eOutput Preview"));
+            meta.lore(List.of(Component.text("§7Put the correct backing material in the input slot.")));
             it.setItemMeta(meta);
         }
         return it;
     }
 
-    private ItemStack makePreview(Currency currency) {
-        List<ItemStack> preview = PhysicalCurrencyFactory.createPhysical(mpcPlugin, currency, 1L);
+    private static ItemStack makePreview(Currency currency) {
+        List<ItemStack> preview = PhysicalCurrencyFactory.createPhysical(null, currency, 1L);
         if (preview.isEmpty()) return outputPlaceholder();
         ItemStack it = preview.get(0).clone();
         it.setAmount(1);
