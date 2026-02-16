@@ -9,7 +9,7 @@
 
     <groupId>com.brandon</groupId>
     <artifactId>burgs-and-banners</artifactId>
-    <version>0.2.5</version>
+    <version>0.2.8</version>
     <packaging>jar</packaging>
 
     <name>BurgsAndBanners</name>

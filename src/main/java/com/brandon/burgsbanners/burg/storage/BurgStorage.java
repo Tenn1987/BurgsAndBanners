@@ -1,8 +1,10 @@
 package com.brandon.burgsbanners.burg.storage;
 
-import com.brandon.burgsbanners.burg.*;
+import com.brandon.burgsbanners.burg.Burg;
+import com.brandon.burgsbanners.burg.ChunkClaim;
+import com.brandon.burgsbanners.burg.PolityStage;
 import com.brandon.burgsbanners.burg.plot.Plot;
-
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
@@ -18,12 +20,13 @@ public class BurgStorage {
     private final JavaPlugin plugin;
     private final File file;
 
+    // ✅ This matches: new BurgStorage(this) in your main plugin
     public BurgStorage(JavaPlugin plugin) {
         this.plugin = plugin;
         this.file = new File(plugin.getDataFolder(), "burgs.yml");
     }
 
-    // ===== Compatibility API (WHAT BurgManager expects) =====
+    // ===== Compatibility API (what BurgManager expects) =====
     public Map<String, Burg> loadAllBurgs() {
         return loadAll();
     }
@@ -34,7 +37,7 @@ public class BurgStorage {
         saveAll(all);
     }
 
-    // ===== Your existing API =====
+    // ===== Main API =====
     public Map<String, Burg> loadAll() {
         if (!file.exists()) {
             return new LinkedHashMap<>();
@@ -50,100 +53,124 @@ public class BurgStorage {
             ConfigurationSection cs = root.getConfigurationSection(id);
             if (cs == null) continue;
 
-            Burg b = new Burg(id);
-            b.setName(cs.getString("name", id));
+            try {
+                // ✅ Burg constructor is Burg(String id)
+                Burg b = new Burg(id);
 
-            String stage = cs.getString("stage", "BURG");
-            try { b.setPolityStage(PolityStage.valueOf(stage.toUpperCase(Locale.ROOT))); }
-            catch (Exception ignored) { b.setPolityStage(PolityStage.BURG); }
+                b.setName(cs.getString("name", id));
 
-            String leader = cs.getString("leaderUuid", null);
-            if (leader != null) {
-                try { b.setLeaderUuid(UUID.fromString(leader)); } catch (Exception ignored) { }
-            }
-
-            b.setRulerTitle(cs.getString("rulerTitle", "Lord-Mayor"));
-            b.setAdoptedCurrencyCode(cs.getString("currency", "SHEKEL"));
-
-            // treasury identity (institutional wallet)
-            String treasuryUuid = cs.getString("treasuryUuid", null);
-            if (treasuryUuid != null && !treasuryUuid.isBlank()) {
-                try { b.setTreasuryUuid(UUID.fromString(treasuryUuid)); } catch (Exception ignored) { }
-            }
-
-            // ✅ tax policy
-            // stored as a rate (0.05 = 5%), clamp handled in Burg setter
-            double salesRate = cs.getDouble("tax.sales", 0.05);
-            b.setSalesTaxRate(salesRate);
-
-            // ✅ moneychanger fee (separate from sales tax)
-// Backward compatible: read new key first, fall back to old key if present
-            double mcFee = cs.getDouble("tax.mcfee",
-                    cs.getDouble("moneychangerFeeRate", 0.0)
-            );
-            b.setMoneychangerFeeRate(mcFee);
-
-
-            // home
-            String worldStr = cs.getString("home.world", null);
-            if (worldStr != null) {
-                try { b.setWorldId(UUID.fromString(worldStr)); } catch (Exception ignored) { }
-            }
-            int x = cs.getInt("home.x", 0);
-            int y = cs.getInt("home.y", 64);
-            int z = cs.getInt("home.z", 0);
-            if (b.getWorldId() != null) {
-                World w = plugin.getServer().getWorld(b.getWorldId());
-                if (w != null) b.setHome(new Location(w, x, y, z));
-            }
-
-            // members
-            List<String> members = cs.getStringList("members");
-            for (String m : members) {
-                try { b.getMembers().add(UUID.fromString(m)); } catch (Exception ignored) { }
-            }
-
-            // claims
-            for (String s : cs.getStringList("claims")) {
-                ChunkClaim cc = parseClaim(s);
-                if (cc != null) b.addClaim(cc);
-            }
-
-            // treasury balances
-            ConfigurationSection t = cs.getConfigurationSection("treasury");
-            if (t != null) {
-                for (String code : t.getKeys(false)) {
-                    long bal = t.getLong(code, 0L);
-                    b.getTreasuryBalances().put(code.toUpperCase(Locale.ROOT), bal);
+                String stage = cs.getString("stage", "BURG");
+                try {
+                    b.setPolityStage(PolityStage.valueOf(stage.toUpperCase(Locale.ROOT)));
+                } catch (Exception ignored) {
+                    b.setPolityStage(PolityStage.BURG);
                 }
-            }
 
-            // food
-            b.setBaseFoodCapacity(cs.getDouble("food.baseCapacity", 0.0));
-            b.setLastFoodPoints(cs.getDouble("food.lastPoints", 0.0));
-            b.setLastScanEpochSeconds(cs.getLong("food.lastScan", 0L));
+                String leader = cs.getString("leaderUuid", null);
+                if (leader != null && !leader.isBlank()) {
+                    try { b.setLeaderUuid(UUID.fromString(leader)); } catch (Exception ignored) {}
+                }
 
-            // plots
-            ConfigurationSection plots = cs.getConfigurationSection("plots");
-            if (plots != null) {
-                for (String pid : plots.getKeys(false)) {
-                    ConfigurationSection ps = plots.getConfigurationSection(pid);
-                    if (ps == null) continue;
+                b.setRulerTitle(cs.getString("rulerTitle", "Lord-Mayor"));
+                b.setAdoptedCurrencyCode(cs.getString("currency", "SHEKEL"));
 
+                String treasuryUuid = cs.getString("treasuryUuid", null);
+                if (treasuryUuid != null && !treasuryUuid.isBlank()) {
+                    try { b.setTreasuryUuid(UUID.fromString(treasuryUuid)); } catch (Exception ignored) {}
+                }
+
+                // tax policy
+                b.setSalesTaxRate(cs.getDouble("tax.sales", 0.0));
+                // moneychanger fee
+                double mcFee = cs.contains("tax.mcfee") ? cs.getDouble("tax.mcfee", 0.0) : cs.getDouble("moneychangerFeeRate", 0.0);
+                b.setMoneychangerFeeRate(mcFee);
+
+                // home
+                String homeWorld = cs.getString("home.world", null);
+                if (homeWorld != null && !homeWorld.isBlank()) {
                     try {
-                        Plot p = new Plot(
-                                pid,
-                                ps.getString("name", pid),
-                                UUID.fromString(ps.getString("world")),
-                                ps.getInt("minX"), ps.getInt("minY"), ps.getInt("minZ"),
-                                ps.getInt("maxX"), ps.getInt("maxY"), ps.getInt("maxZ")
-                        );
-                        b.putPlot(p);
-                    } catch (Exception ignored) { }
-                }
-            }
+                        UUID worldId = UUID.fromString(homeWorld);
+                        b.setWorldId(worldId);
 
-            out.put(id, b);
+                        World w = Bukkit.getWorld(worldId);
+                        if (w != null) {
+                            Location home = new Location(
+                                    w,
+                                    cs.getInt("home.x"),
+                                    cs.getInt("home.y"),
+                                    cs.getInt("home.z")
+                            );
+                            b.setHome(home);
+                        }
+
+                    } catch (Exception ignored) {}
+                }
+
+                // members
+                for (String m : cs.getStringList("members")) {
+                    try { b.getMembers().add(UUID.fromString(m)); } catch (Exception ignored) {}
+                }
+
+                // claims
+                for (String s : cs.getStringList("claims")) {
+                    ChunkClaim cc = parseClaim(s);
+                    if (cc != null) b.addClaim(cc);
+                }
+
+                // treasury balances
+                ConfigurationSection t = cs.getConfigurationSection("treasury");
+                if (t != null) {
+                    for (String code : t.getKeys(false)) {
+                        long bal = t.getLong(code, 0L);
+                        b.getTreasuryBalances().put(code.toUpperCase(Locale.ROOT), bal);
+                    }
+                }
+
+                // food stats
+                b.setBaseFoodCapacity(cs.getInt("food.baseCapacity", 0));
+                b.setLastFoodPoints(cs.getInt("food.lastPoints", 0));
+                b.setLastScanEpochSeconds(cs.getLong("food.lastScan", 0L));
+
+                // ✅ plots (NEW: plotUuid + owner + lien)
+                ConfigurationSection plots = cs.getConfigurationSection("plots");
+                if (plots != null) {
+                    for (String pid : plots.getKeys(false)) {
+                        ConfigurationSection ps = plots.getConfigurationSection(pid);
+                        if (ps == null) continue;
+
+                        try {
+                            UUID plotUuid = UUID.fromString(ps.getString("plotUuid"));
+                            Plot p = new Plot(
+                                    plotUuid,
+                                    pid,
+                                    ps.getString("name", pid),
+                                    UUID.fromString(ps.getString("world")),
+                                    ps.getInt("minX"), ps.getInt("minY"), ps.getInt("minZ"),
+                                    ps.getInt("maxX"), ps.getInt("maxY"), ps.getInt("maxZ")
+                            );
+
+                            String ownerStr = ps.getString("ownerUuid");
+                            if (ownerStr != null && !ownerStr.isBlank()) {
+                                p.setOwnerUuid(UUID.fromString(ownerStr));
+                            }
+
+                            String lienStr = ps.getString("lienHolderUuid");
+                            if (lienStr != null && !lienStr.isBlank()) {
+                                p.setLienHolderUuid(UUID.fromString(lienStr));
+                            }
+
+                            b.putPlot(p);
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                    }
+                }
+
+                out.put(id, b);
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
         }
 
         return out;
@@ -160,6 +187,7 @@ public class BurgStorage {
 
         for (Burg b : burgs.values()) {
             ConfigurationSection cs = root.createSection(b.getId());
+
             cs.set("name", b.getName());
             cs.set("stage", b.getPolityStage().name());
             cs.set("leaderUuid", b.getLeaderUuid() == null ? null : b.getLeaderUuid().toString());
@@ -167,13 +195,8 @@ public class BurgStorage {
             cs.set("currency", b.getAdoptedCurrencyCode());
             cs.set("treasuryUuid", b.getTreasuryUuid() == null ? null : b.getTreasuryUuid().toString());
 
-// sales tax (existing)
             cs.set("tax.sales", b.getSalesTaxRate());
-
-// moneychanger fee (new canonical key + legacy safety)
             cs.set("tax.mcfee", b.getMoneychangerFeeRate());
-            cs.set("moneychangerFeeRate", b.getMoneychangerFeeRate()); // legacy
-
 
             if (b.getWorldId() != null) {
                 cs.set("home.world", b.getWorldId().toString());
@@ -203,14 +226,20 @@ public class BurgStorage {
             cs.set("food.lastPoints", b.getLastFoodPoints());
             cs.set("food.lastScan", b.getLastScanEpochSeconds());
 
+            // ✅ plots (NEW save format)
             if (!b.getPlots().isEmpty()) {
                 ConfigurationSection plots = cs.createSection("plots");
                 b.getPlots().forEach((pid, p) -> {
                     ConfigurationSection ps = plots.createSection(pid);
+                    ps.set("plotUuid", p.getPlotUuid().toString());
                     ps.set("name", p.getName());
                     ps.set("world", p.getWorldId().toString());
+
                     ps.set("minX", p.getMinX()); ps.set("minY", p.getMinY()); ps.set("minZ", p.getMinZ());
                     ps.set("maxX", p.getMaxX()); ps.set("maxY", p.getMaxY()); ps.set("maxZ", p.getMaxZ());
+
+                    ps.set("ownerUuid", p.getOwnerUuid() == null ? null : p.getOwnerUuid().toString());
+                    ps.set("lienHolderUuid", p.getLienHolderUuid() == null ? null : p.getLienHolderUuid().toString());
                 });
             }
         }

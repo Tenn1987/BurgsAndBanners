@@ -17,6 +17,9 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+
 public class BurgCommand implements CommandExecutor, TabCompleter {
 
     private final JavaPlugin plugin;
@@ -38,8 +41,12 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         this.mpc = mpc;
     }
 
-    private String c(String s) {
-        return ChatColor.translateAlternateColorCodes('&', s);
+    private Component c(String s) {
+        return LegacyComponentSerializer.legacyAmpersand().deserialize(s);
+    }
+
+    private boolean isMayor(Burg burg, UUID player) {
+        return burg != null && burg.getLeaderUuid() != null && burg.getLeaderUuid().equals(player);
     }
 
     @Override
@@ -74,7 +81,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length == 2 && args[0].equalsIgnoreCase("plot")) {
-            List<String> subs = List.of("pos1", "pos2", "create", "show", "list");
+            List<String> subs = List.of("pos1", "pos2", "create", "show", "list", "assign", "unassign");
             String p = args[1].toLowerCase(Locale.ROOT);
             return subs.stream().filter(s -> s.startsWith(p)).collect(Collectors.toList());
         }
@@ -83,19 +90,37 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return mpc.suggestCurrencyCodes(args[2]);
         }
 
-        if (args.length == 3 && args[0].equalsIgnoreCase("plot") && args[1].equalsIgnoreCase("show")) {
-            if (!(sender instanceof Player player)) return Collections.emptyList();
-            Burg burg = burgManager.getBurgByMember(player.getUniqueId());
-            if (burg == null) return Collections.emptyList();
+        if (args.length >= 3 && args[0].equalsIgnoreCase("plot")) {
+            String sub = args[1].toLowerCase(Locale.ROOT);
 
-            String p = args[2].toLowerCase(Locale.ROOT);
-            return burg.getPlots().keySet().stream()
-                    .filter(k -> k.toLowerCase(Locale.ROOT).startsWith(p))
-                    .sorted()
-                    .collect(Collectors.toList());
+            if (sub.equals("show") || sub.equals("assign") || sub.equals("unassign")) {
+                if (!(sender instanceof Player player)) return Collections.emptyList();
+                Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+                if (burg == null) return Collections.emptyList();
+
+                String p = args[2].toLowerCase(Locale.ROOT);
+                return burg.getPlots().keySet().stream()
+                        .filter(k -> k.toLowerCase(Locale.ROOT).startsWith(p))
+                        .sorted()
+                        .collect(Collectors.toList());
+            }
         }
 
         return Collections.emptyList();
+    }
+
+    /* ================= HELP ================= */
+
+    private void help(CommandSender sender, String label) {
+        sender.sendMessage(c("&6== &eBurg Commands &6=="));
+        sender.sendMessage(c("&e/" + label + " found <name> <currency>"));
+        sender.sendMessage(c("&e/" + label + " info"));
+        sender.sendMessage(c("&e/" + label + " treasury"));
+        sender.sendMessage(c("&e/" + label + " claim"));
+        sender.sendMessage(c("&e/" + label + " unclaim"));
+        sender.sendMessage(c("&e/" + label + " join"));
+        sender.sendMessage(c("&e/" + label + " leave"));
+        sender.sendMessage(c("&e/" + label + " plot pos1|pos2|create|show|list|assign|unassign"));
     }
 
     /* ================= FOUND ================= */
@@ -171,7 +196,6 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                 starterClaims
         );
 
-        // Ensure treasury wallet exists (touch/create)
         UUID treasuryId = burg.getTreasuryUuid();
         mpc.touch(treasuryId, currency);
 
@@ -180,7 +204,6 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             mpc.deposit(treasuryId, currency, initialFunding);
         }
 
-        // Food scan
         FoodScanService.ScanResult scan = foodScanService.scanBurgClaims(burg, world);
         burg.setBaseFoodCapacity(scan.baseFoodCapacity());
         burg.setLastFoodPoints(scan.totalFoodPoints());
@@ -200,7 +223,6 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Already in a burg?
         Burg current = burgManager.getBurgByMember(player.getUniqueId());
         if (current != null) {
             player.sendMessage(c("&cYou are already in a burg."));
@@ -208,97 +230,20 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // Must stand inside the burg you want to join
         Burg here = burgManager.getBurgAt(player.getLocation());
         if (here == null) {
             player.sendMessage(c("&cYou must be inside burg limits to join."));
             return true;
         }
 
-        // Optional: /burg join <name> must match where you're standing
-        if (args.length >= 2) {
-            String want = args[1];
-            boolean match = here.getName().equalsIgnoreCase(want) || here.getId().equalsIgnoreCase(want);
-            if (!match) {
-                player.sendMessage(c("&cYou are standing in &f" + here.getName() + "&c."));
-                player.sendMessage(c("&7To join this burg: &f/" + label + " join"));
-                return true;
-            }
-        }
-
-        boolean ok = burgManager.tryJoinMember(here, player.getUniqueId());
-        if (!ok) {
-            player.sendMessage(c("&cJoin failed."));
+        // simple join: must be standing in the claim
+        if (!here.getMembers().add(player.getUniqueId())) {
+            player.sendMessage(c("&cYou are already a member."));
             return true;
         }
 
+        burgManager.save(here);
         player.sendMessage(c("&aJoined burg: &f" + here.getName()));
-        return true;
-    }
-
-    /* ================= INFO ================= */
-
-    private boolean handleInfo(CommandSender sender) {
-        if (!(sender instanceof Player player)) return true;
-
-        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
-        if (burg == null) {
-            sender.sendMessage(c("&cYou are not in a burg."));
-            return true;
-        }
-
-        sender.sendMessage(c("&6== &e" + burg.getName() + " &6=="));
-        sender.sendMessage(c("&7Currency: &f" + burg.getAdoptedCurrencyCode()));
-        sender.sendMessage(c("&7Claims: &f" + burg.getClaims().size()));
-        sender.sendMessage(c("&7Members: &f" + burg.getMembers().size()));
-        sender.sendMessage(c("&7Food: &f" + burg.getLastFoodPoints()));
-        return true;
-    }
-
-    /* ================= TREASURY ================= */
-
-    private boolean handleTreasury(CommandSender sender) {
-        if (!(sender instanceof Player player)) return true;
-
-        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
-        if (burg == null) {
-            sender.sendMessage(c("&cYou are not in a burg."));
-            return true;
-        }
-
-        if (mpc == null || !mpc.isHooked()) {
-            sender.sendMessage(c("&cMPC unavailable."));
-            return true;
-        }
-
-        String currency = burg.getAdoptedCurrencyCode();
-        UUID treasuryId = burg.getTreasuryUuid();
-
-        // migrate legacy once (if you still have that map in Burg)
-        if (!burg.getTreasuryBalances().isEmpty()) {
-            for (var e : burg.getTreasuryBalances().entrySet()) {
-                if (e.getValue() > 0) {
-                    mpc.deposit(treasuryId, e.getKey(), e.getValue());
-                }
-            }
-            burg.getTreasuryBalances().clear();
-            burgManager.save(burg);
-        }
-
-        long bal = mpc.getBalance(treasuryId, currency);
-        sender.sendMessage(c("&6Treasury: &f" + bal + " " + currency));
-        return true;
-    }
-
-    /* ================= CLAIM / UNCLAIM ================= */
-
-    private boolean handleClaim(CommandSender sender) {
-        sender.sendMessage(c("&7Claim logic unchanged."));
-        return true;
-    }
-
-    private boolean handleUnclaim(CommandSender sender) {
-        sender.sendMessage(c("&7Unclaim logic unchanged."));
         return true;
     }
 
@@ -306,7 +251,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
 
     private boolean handleLeave(CommandSender sender) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(c("&cOnly players can use this command."));
+            sender.sendMessage(c("&cPlayers only."));
             return true;
         }
 
@@ -316,40 +261,21 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        UUID leader = burg.getLeaderUuid();
-        boolean isLeader = leader != null && leader.equals(player.getUniqueId());
-
-        if (isLeader && !player.isOp()) {
-            sender.sendMessage(c("&cYou are the Lord-Mayor of &f" + burg.getName() + "&c."));
-            sender.sendMessage(c("&7You cannot leave while ruling. (Only OP can orphan leadership during testing.)"));
-            sender.sendMessage(c("&7If you are OP: &f/burg abdicate &7then &f/burg leave"));
+        if (isMayor(burg, player.getUniqueId())) {
+            sender.sendMessage(c("&cYou are the mayor. Abdicate first (not implemented here)."));
             return true;
         }
 
-        // If OP leader leaves without abdicate, orphan the burg cleanly
-        if (isLeader && player.isOp()) {
-            burg.setLeaderUuid(null);
-            burgManager.save(burg);
-        }
+        burg.getMembers().remove(player.getUniqueId());
+        burgManager.save(burg);
 
-        boolean removed = burg.getMembers().remove(player.getUniqueId());
-        if (!removed) {
-            sender.sendMessage(c("&cYou could not be removed (already not a member?)."));
-            return true;
-        }
-
-        burgManager.onMemberLeft(burg, player.getUniqueId());
-
-        sender.sendMessage(c("&aYou have left the burg: &f" + burg.getName()));
-        if (isLeader) {
-            sender.sendMessage(c("&cWarning: this burg is now orphaned (no leader)."));
-        }
+        sender.sendMessage(c("&aYou left &f" + burg.getName()));
         return true;
     }
 
-    /* ================= ABDICATE ================= */
+    /* ================= INFO / TREASURY ================= */
 
-    private boolean handleAbdicate(CommandSender sender) {
+    private boolean handleInfo(CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage(c("&cPlayers only."));
             return true;
@@ -357,35 +283,110 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
 
         Burg burg = burgManager.getBurgByMember(player.getUniqueId());
         if (burg == null) {
-            player.sendMessage(c("&cYou are not in a burg."));
+            sender.sendMessage(c("&cYou are not in a burg."));
             return true;
         }
 
-        UUID leader = burg.getLeaderUuid();
-        boolean isLeader = (leader != null && leader.equals(player.getUniqueId()));
-        if (!isLeader) {
-            player.sendMessage(c("&cYou are not the mayor of &f" + burg.getName() + "&c."));
-            return true;
-        }
-
-        if (!player.isOp()) {
-            player.sendMessage(c("&cOnly OP can abdicate during testing."));
-            return true;
-        }
-
-        burg.setLeaderUuid(null);
-        burgManager.save(burg);
-
-        player.sendMessage(c("&eYou have abdicated leadership of &f" + burg.getName() + "&e."));
-        player.sendMessage(c("&7You may now leave: &f/burg leave"));
+        sender.sendMessage(c("&6== &eBurg Info &6=="));
+        sender.sendMessage(c("&eName: &f" + burg.getName()));
+        sender.sendMessage(c("&eLeader: &f" + burg.getLeaderUuid()));
+        sender.sendMessage(c("&eMembers: &f" + burg.getMembers().size()));
+        sender.sendMessage(c("&eClaims: &f" + burg.getClaims().size()));
+        sender.sendMessage(c("&ePlots: &f" + burg.getPlots().size()));
         return true;
     }
 
-    /* ================= PLOT ================= */
+    private boolean handleTreasury(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(c("&cPlayers only."));
+            return true;
+        }
+
+        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+        if (burg == null) {
+            sender.sendMessage(c("&cYou are not in a burg."));
+            return true;
+        }
+
+        String code = burg.getAdoptedCurrencyCode();
+        long bal = mpc.getBalance(burg.getTreasuryUuid(), code);
+
+        sender.sendMessage(c("&6== &eTreasury &6=="));
+        sender.sendMessage(c("&eBurg: &f" + burg.getName()));
+        sender.sendMessage(c("&eBalance: &f" + bal + " " + code));
+        return true;
+    }
+
+    /* ================= CLAIM / UNCLAIM ================= */
+
+    private boolean handleClaim(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(c("&cPlayers only."));
+            return true;
+        }
+
+        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+        if (burg == null) {
+            sender.sendMessage(c("&cYou are not in a burg."));
+            return true;
+        }
+        if (!isMayor(burg, player.getUniqueId())) {
+            sender.sendMessage(c("&cOnly the mayor can claim."));
+            return true;
+        }
+
+        Chunk chunk = player.getLocation().getChunk();
+        ChunkClaim claim = ChunkClaim.fromChunk(chunk.getWorld(), chunk);
+
+        if (!burgManager.tryAddClaim(burg, claim)) {
+            sender.sendMessage(c("&cThat chunk is already claimed."));
+            return true;
+        }
+
+        sender.sendMessage(c("&aClaimed chunk &f(" + claim.getChunkX() + "," + claim.getChunkZ() + ")"));
+        return true;
+    }
+
+    private boolean handleUnclaim(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(c("&cPlayers only."));
+            return true;
+        }
+
+        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+        if (burg == null) {
+            sender.sendMessage(c("&cYou are not in a burg."));
+            return true;
+        }
+        if (!isMayor(burg, player.getUniqueId())) {
+            sender.sendMessage(c("&cOnly the mayor can unclaim."));
+            return true;
+        }
+
+        Chunk chunk = player.getLocation().getChunk();
+        ChunkClaim claim = ChunkClaim.fromChunk(chunk.getWorld(), chunk);
+
+        if (!burgManager.tryRemoveClaim(burg, claim)) {
+            sender.sendMessage(c("&cThat chunk is not yours."));
+            return true;
+        }
+
+        sender.sendMessage(c("&aUnclaimed chunk &f(" + claim.getChunkX() + "," + claim.getChunkZ() + ")"));
+        return true;
+    }
+
+    /* ================= ABDICATE ================= */
+
+    private boolean handleAbdicate(CommandSender sender) {
+        sender.sendMessage(c("&cAbdicate not implemented in this command yet."));
+        return true;
+    }
+
+    /* ================= PLOTS ================= */
 
     private boolean handlePlot(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage(c("&cOnly players can use this command."));
+            sender.sendMessage(c("&cPlayers only."));
             return true;
         }
 
@@ -396,55 +397,77 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         }
 
         if (args.length < 2) {
-            sender.sendMessage(c("&cUsage: &f/" + label + " plot <pos1|pos2|create|show|list> ..."));
+            sender.sendMessage(c("&cUsage: /" + label + " plot <pos1|pos2|create|show|list|assign|unassign>"));
             return true;
         }
 
         String sub = args[1].toLowerCase(Locale.ROOT);
 
         switch (sub) {
+
             case "pos1" -> {
+                if (!isMayor(burg, player.getUniqueId())) {
+                    sender.sendMessage(c("&cOnly the mayor can set plot corners."));
+                    return true;
+                }
+
                 Block b = player.getTargetBlockExact(200);
                 if (b == null) {
                     sender.sendMessage(c("&cLook at a block within 200 blocks."));
                     return true;
                 }
+
                 PlotSelection sel = plotSelections.computeIfAbsent(player.getUniqueId(), k -> new PlotSelection());
                 sel.setPos1(b.getLocation());
-                sender.sendMessage(c("&aPlot pos1 set: &f" + fmtLoc(b.getLocation())));
+                sender.sendMessage(c("&aPlot pos1 set."));
                 return true;
             }
+
             case "pos2" -> {
+                if (!isMayor(burg, player.getUniqueId())) {
+                    sender.sendMessage(c("&cOnly the mayor can set plot corners."));
+                    return true;
+                }
+
                 Block b = player.getTargetBlockExact(200);
                 if (b == null) {
                     sender.sendMessage(c("&cLook at a block within 200 blocks."));
                     return true;
                 }
+
                 PlotSelection sel = plotSelections.computeIfAbsent(player.getUniqueId(), k -> new PlotSelection());
                 sel.setPos2(b.getLocation());
-                sender.sendMessage(c("&aPlot pos2 set: &f" + fmtLoc(b.getLocation())));
+                sender.sendMessage(c("&aPlot pos2 set."));
                 return true;
             }
+
             case "list" -> {
                 if (burg.getPlots().isEmpty()) {
                     sender.sendMessage(c("&7No plots yet."));
                     return true;
                 }
                 sender.sendMessage(c("&6== &ePlots in " + burg.getName() + " &6=="));
-                burg.getPlots().values().stream()
-                        .sorted(Comparator.comparing(Plot::getId, String.CASE_INSENSITIVE_ORDER))
-                        .forEach(p -> sender.sendMessage(c("&7- &f" + p.getId() + " &7(" + p.getName() + ")")));
+                for (Plot p : burg.getPlots().values()) {
+                    String owner = (p.getOwnerUuid() == null) ? "none" : p.getOwnerUuid().toString();
+                    sender.sendMessage(c("&7- &f" + p.getId() + " &7(" + p.getName() + ") &8owner:&7 " + owner));
+                }
                 return true;
             }
+
             case "create" -> {
+                if (!isMayor(burg, player.getUniqueId())) {
+                    sender.sendMessage(c("&cOnly the mayor can create plots."));
+                    return true;
+                }
+
                 if (args.length < 3) {
-                    sender.sendMessage(c("&cUsage: &f/" + label + " plot create <id> [displayName...]"));
+                    sender.sendMessage(c("&cUsage: /" + label + " plot create <id> [displayName...]"));
                     return true;
                 }
 
                 String id = args[2].trim().toLowerCase(Locale.ROOT);
                 if (!id.matches("[a-z0-9_-]{2,24}")) {
-                    sender.sendMessage(c("&cPlot id must be 2–24 chars: a-z, 0-9, _, -"));
+                    sender.sendMessage(c("&cPlot id must be 2-24 chars: a-z, 0-9, _, -"));
                     return true;
                 }
                 if (burg.getPlot(id) != null) {
@@ -453,23 +476,21 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                 }
 
                 PlotSelection sel = plotSelections.get(player.getUniqueId());
-                Location p1 = (sel == null) ? null : sel.getPos1();
-                Location p2 = (sel == null) ? null : sel.getPos2();
-                if (p1 == null || p2 == null) {
-                    sender.sendMessage(c("&cSet pos1 and pos2 first: &f/" + label + " plot pos1 &7and &f/" + label + " plot pos2"));
+                if (sel == null || sel.getPos1() == null || sel.getPos2() == null) {
+                    sender.sendMessage(c("&cSet pos1 and pos2 first."));
                     return true;
                 }
 
-                World w1 = p1.getWorld();
-                World w2 = p2.getWorld();
-                if (w1 == null || w2 == null || !w1.getUID().equals(w2.getUID())) {
+                Location p1 = sel.getPos1();
+                Location p2 = sel.getPos2();
+                if (p1.getWorld() == null || p2.getWorld() == null || !p1.getWorld().getUID().equals(p2.getWorld().getUID())) {
                     sender.sendMessage(c("&cpos1 and pos2 must be in the same world."));
                     return true;
                 }
 
-                // Must be inside your burg claims
-                if (!isInsideClaims(burg, p1) || !isInsideClaims(burg, p2)) {
-                    sender.sendMessage(c("&cBoth corners must be inside your burg's claimed chunks."));
+                // ensure both corners are inside claimed chunks (simple check)
+                if (burgManager.getBurgAt(p1) != burg || burgManager.getBurgAt(p2) != burg) {
+                    sender.sendMessage(c("&cBoth corners must be inside your claimed land."));
                     return true;
                 }
 
@@ -485,17 +506,21 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                 int maxZ = Math.max(p1.getBlockZ(), p2.getBlockZ());
 
                 Plot plot = new Plot(
+                        UUID.randomUUID(),
                         id,
                         displayName,
-                        w1.getUID(),
+                        p1.getWorld().getUID(),
                         minX, minY, minZ,
                         maxX, maxY, maxZ
                 );
 
-                // No overlaps within burg (simple AABB in same world)
+                // prevent overlaps
                 for (Plot existing : burg.getPlots().values()) {
-                    if (overlaps(existing, plot)) {
-                        sender.sendMessage(c("&cThis plot overlaps existing plot: &f" + existing.getId()));
+                    if (existing.getWorldId().equals(plot.getWorldId())
+                            && existing.getMinX() <= plot.getMaxX() && existing.getMaxX() >= plot.getMinX()
+                            && existing.getMinY() <= plot.getMaxY() && existing.getMaxY() >= plot.getMinY()
+                            && existing.getMinZ() <= plot.getMaxZ() && existing.getMaxZ() >= plot.getMinZ()) {
+                        sender.sendMessage(c("&cOverlaps existing plot: &f" + existing.getId()));
                         return true;
                     }
                 }
@@ -503,62 +528,99 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                 burg.putPlot(plot);
                 burgManager.save(burg);
 
-                sender.sendMessage(c("&aCreated plot &f" + plot.getId() + "&a (" + plot.getName() + ")"));
-                sender.sendMessage(c("&7Use &f/" + label + " plot show " + plot.getId() + " &7to visualize."));
+                sender.sendMessage(c("&aCreated plot &f" + plot.getId() + "&a with UUID &7" + plot.getPlotUuid()));
                 return true;
             }
-            case "show" -> {
-                if (args.length < 3) {
-                    sender.sendMessage(c("&cUsage: &f/" + label + " plot show <id>"));
+
+            case "assign" -> {
+                if (!isMayor(burg, player.getUniqueId())) {
+                    sender.sendMessage(c("&cOnly the mayor can assign plot ownership."));
                     return true;
                 }
+
+                if (args.length < 4) {
+                    sender.sendMessage(c("&cUsage: /" + label + " plot assign <plotId> <playerName>"));
+                    return true;
+                }
+
+                String plotId = args[2].toLowerCase(Locale.ROOT);
+                Plot plot = burg.getPlot(plotId);
+                if (plot == null) {
+                    sender.sendMessage(c("&cUnknown plot: &f" + plotId));
+                    return true;
+                }
+
+                OfflinePlayer target = Bukkit.getOfflinePlayer(args[3]);
+                if (target == null || target.getUniqueId() == null) {
+                    sender.sendMessage(c("&cCould not resolve player: &f" + args[3]));
+                    return true;
+                }
+
+                plot.setOwnerUuid(target.getUniqueId());
+                burgManager.save(burg);
+
+                sender.sendMessage(c("&aAssigned plot &f" + plot.getId() + " &ato &f" + target.getName()));
+                return true;
+            }
+
+            case "unassign" -> {
+                if (!isMayor(burg, player.getUniqueId())) {
+                    sender.sendMessage(c("&cOnly the mayor can unassign plot ownership."));
+                    return true;
+                }
+
+                if (args.length < 3) {
+                    sender.sendMessage(c("&cUsage: /" + label + " plot unassign <plotId>"));
+                    return true;
+                }
+
+                String plotId = args[2].toLowerCase(Locale.ROOT);
+                Plot plot = burg.getPlot(plotId);
+                if (plot == null) {
+                    sender.sendMessage(c("&cUnknown plot: &f" + plotId));
+                    return true;
+                }
+
+                plot.setOwnerUuid(null);
+                burgManager.save(burg);
+
+                sender.sendMessage(c("&aUnassigned plot &f" + plot.getId()));
+                return true;
+            }
+
+            case "show" -> {
+                if (args.length < 3) {
+                    sender.sendMessage(c("&cUsage: /" + label + " plot show <id>"));
+                    return true;
+                }
+
                 String id = args[2].trim().toLowerCase(Locale.ROOT);
                 Plot plot = burg.getPlot(id);
                 if (plot == null) {
-                    sender.sendMessage(c("&cPlot not found: &f" + id));
+                    sender.sendMessage(c("&cNo plot found with id: &f" + id));
                     return true;
                 }
-                World w = Bukkit.getWorld(plot.getWorldId());
-                if (w == null) {
-                    sender.sendMessage(c("&cPlot world not loaded."));
-                    return true;
-                }
-                showPlotParticles(player, plot, w);
-                sender.sendMessage(c("&aShowing plot borders for &f" + plot.getId() + "&a for 8 seconds."));
+
+                visualizePlot(player, plot);
+                sender.sendMessage(c("&aVisualized plot: &f" + plot.getId() + " &7(" + plot.getName() + ")"));
                 return true;
             }
+
             default -> {
-                sender.sendMessage(c("&cUnknown plot subcommand. Use: pos1, pos2, create, show, list"));
+                sender.sendMessage(c("&cUsage: /" + label + " plot <pos1|pos2|create|show|list|assign|unassign>"));
                 return true;
             }
         }
     }
 
-    // -------- plot helpers --------
+    /* ================= VISUALIZER ================= */
 
-    private boolean isInsideClaims(Burg burg, Location loc) {
-        World w = loc.getWorld();
-        if (w == null) return false;
-        ChunkClaim cc = ChunkClaim.fromChunk(w, loc.getChunk());
-        return burg.hasClaim(cc);
-    }
-
-    /** AABB overlap test in same world. */
-    private boolean overlaps(Plot a, Plot b) {
-        if (a == null || b == null) return false;
-        if (a.getWorldId() == null || b.getWorldId() == null) return false;
-        if (!a.getWorldId().equals(b.getWorldId())) return false;
-
-        boolean x = a.getMinX() <= b.getMaxX() && a.getMaxX() >= b.getMinX();
-        boolean y = a.getMinY() <= b.getMaxY() && a.getMaxY() >= b.getMinY();
-        boolean z = a.getMinZ() <= b.getMaxZ() && a.getMaxZ() >= b.getMinZ();
-        return x && y && z;
-    }
-
-    private void showPlotParticles(Player viewer, Plot plot, World world) {
-        int seconds = 8;
-        int periodTicks = 10; // 0.5s
-        int runs = (seconds * 20) / periodTicks;
+    private void visualizePlot(Player player, Plot plot) {
+        World world = Bukkit.getWorld(plot.getWorldId());
+        if (world == null) {
+            player.sendMessage(c("&cWorld not loaded for this plot."));
+            return;
+        }
 
         int minX = plot.getMinX();
         int maxX = plot.getMaxX();
@@ -568,47 +630,49 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         int maxZ = plot.getMaxZ();
 
         new BukkitRunnable() {
-            int n = 0;
+            int t = 0;
 
-            @Override public void run() {
-                if (!viewer.isOnline()) { cancel(); return; }
-                if (n++ >= runs) { cancel(); return; }
-
-                int y = clamp(viewer.getLocation().getBlockY(), minY, maxY);
-
-                // edges along X at z=minZ and z=maxZ
-                for (int x = minX; x <= maxX; x += 2) {
-                    world.spawnParticle(Particle.HAPPY_VILLAGER, x + 0.5, y + 1.1, minZ + 0.5, 1, 0, 0, 0, 0);
-                    world.spawnParticle(Particle.HAPPY_VILLAGER, x + 0.5, y + 1.1, maxZ + 0.5, 1, 0, 0, 0, 0);
+            @Override
+            public void run() {
+                if (!player.isOnline()) {
+                    cancel();
+                    return;
                 }
-                // edges along Z at x=minX and x=maxX
-                for (int z = minZ; z <= maxZ; z += 2) {
-                    world.spawnParticle(Particle.HAPPY_VILLAGER, minX + 0.5, y + 1.1, z + 0.5, 1, 0, 0, 0, 0);
-                    world.spawnParticle(Particle.HAPPY_VILLAGER, maxX + 0.5, y + 1.1, z + 0.5, 1, 0, 0, 0, 0);
+                if (t++ > 80) {
+                    cancel();
+                    return;
+                }
+
+                for (int x = minX; x <= maxX; x++) {
+                    spawn(player, world, x, minY, minZ);
+                    spawn(player, world, x, minY, maxZ);
+                    spawn(player, world, x, maxY, minZ);
+                    spawn(player, world, x, maxY, maxZ);
+                }
+                for (int z = minZ; z <= maxZ; z++) {
+                    spawn(player, world, minX, minY, z);
+                    spawn(player, world, maxX, minY, z);
+                    spawn(player, world, minX, maxY, z);
+                    spawn(player, world, maxX, maxY, z);
+                }
+                for (int y = minY; y <= maxY; y++) {
+                    spawn(player, world, minX, y, minZ);
+                    spawn(player, world, maxX, y, minZ);
+                    spawn(player, world, minX, y, maxZ);
+                    spawn(player, world, maxX, y, maxZ);
                 }
             }
-        }.runTaskTimer(plugin, 0L, periodTicks);
+        }.runTaskTimer(plugin, 0L, 2L);
     }
 
-    private int clamp(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
+    private void spawn(Player player, World world, double x, double y, double z) {
+        Particle particle;
+        try {
+            particle = Particle.valueOf("HAPPY_VILLAGER");
+        } catch (IllegalArgumentException ex) {
+            particle = Particle.valueOf("VILLAGER_HAPPY");
+        }
+        player.spawnParticle(particle, x + 0.5, y + 0.5, z + 0.5, 1, 0, 0, 0, 0);
     }
 
-    private String fmtLoc(Location l) {
-        if (l == null || l.getWorld() == null) return "(null)";
-        return l.getWorld().getName() + " " + l.getBlockX() + "," + l.getBlockY() + "," + l.getBlockZ();
-    }
-
-    private void help(CommandSender sender, String label) {
-        sender.sendMessage(c("&6== &eBurgs & Banners &6=="));
-        sender.sendMessage(c("&f/" + label + " found <name> <currencyCode> &7- Found a new burg"));
-        sender.sendMessage(c("&f/" + label + " info &7- View your burg"));
-        sender.sendMessage(c("&f/" + label + " treasury &7- View treasury balances"));
-        sender.sendMessage(c("&f/" + label + " claim &7- Claim current chunk"));
-        sender.sendMessage(c("&f/" + label + " unclaim &7- Unclaim current chunk"));
-        sender.sendMessage(c("&f/" + label + " join [name] &7- Join the burg you are standing in"));
-        sender.sendMessage(c("&f/" + label + " abdicate &7- OP only: step down so you can leave"));
-        sender.sendMessage(c("&f/" + label + " leave &7- Leave your burg"));
-        sender.sendMessage(c("&f/" + label + " plot <pos1|pos2|create|show|list> &7- Manage plots"));
-    }
 }

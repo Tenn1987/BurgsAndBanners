@@ -74,7 +74,21 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
 
         getLogger().info("Burgs & Banners enabled.");
 
+        getServer().getPluginManager().registerEvents(
+                new com.brandon.burgsbanners.bell.BurgBellBlockListener(this, burgManager, mpcHook),
+                this
+        );
+
+        getServer().getPluginManager().registerEvents(
+                new com.brandon.burgsbanners.bell.BurgBellGUIListener(this, burgManager, mpcHook),
+                this
+        );
         // Territory / claims listener
+        getServer().getPluginManager().registerEvents(
+                new com.brandon.burgsbanners.protection.BurgProtectionListener(burgManager),
+                this
+        );
+
         getServer().getPluginManager().registerEvents(new BurgTerritoryListener(burgManager), this);
 
         // ✅ Coinsmith (only enable if MPC exists)
