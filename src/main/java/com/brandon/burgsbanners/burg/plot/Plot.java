@@ -1,88 +1,64 @@
 package com.brandon.burgsbanners.burg.plot;
 
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
-
-import java.util.UUID;
 
 public class Plot {
 
-    // Permanent identity (bank collateral key)
-    private final UUID plotUuid;
+    private final String worldName;
+    private final int centerX;
+    private final int centerY;
+    private final int centerZ;
+    private final int radius;
 
-    // Command/UI id (e.g. "market")
-    private final String id;
-
-    // Display name (e.g. "Grand Market")
-    private String name;
-
-    private final UUID worldId;
-
-    private final int minX, minY, minZ;
-    private final int maxX, maxY, maxZ;
-
-    // Ownership + collateral hooks
-    private UUID ownerUuid;       // Player who owns/builds here (set by mayor)
-    private UUID lienHolderUuid;  // Bank/burg holding lien (future)
-
-    public Plot(UUID plotUuid,
-                String id,
-                String name,
-                UUID worldId,
-                int minX, int minY, int minZ,
-                int maxX, int maxY, int maxZ) {
-
-        this.plotUuid = plotUuid;
-        this.id = id;
-        this.name = name;
-        this.worldId = worldId;
-
-        this.minX = minX;
-        this.minY = minY;
-        this.minZ = minZ;
-
-        this.maxX = maxX;
-        this.maxY = maxY;
-        this.maxZ = maxZ;
+    public Plot(String worldName, int centerX, int centerY, int centerZ, int radius) {
+        this.worldName = worldName;
+        this.centerX = centerX;
+        this.centerY = centerY;
+        this.centerZ = centerZ;
+        this.radius = radius;
     }
 
-    public UUID getPlotUuid() { return plotUuid; }
-    public String getId() { return id; }
-    public String getName() { return name; }
-    public UUID getWorldId() { return worldId; }
+    public String getWorldName() {
+        return worldName;
+    }
 
-    public int getMinX() { return minX; }
-    public int getMinY() { return minY; }
-    public int getMinZ() { return minZ; }
-    public int getMaxX() { return maxX; }
-    public int getMaxY() { return maxY; }
-    public int getMaxZ() { return maxZ; }
+    public int getCenterX() {
+        return centerX;
+    }
 
-    public void setName(String name) { this.name = name; }
+    public int getCenterY() {
+        return centerY;
+    }
 
-    public UUID getOwnerUuid() { return ownerUuid; }
-    public void setOwnerUuid(UUID ownerUuid) { this.ownerUuid = ownerUuid; }
+    public int getCenterZ() {
+        return centerZ;
+    }
 
-    public UUID getLienHolderUuid() { return lienHolderUuid; }
-    public void setLienHolderUuid(UUID lienHolderUuid) { this.lienHolderUuid = lienHolderUuid; }
+    public int getRadius() {
+        return radius;
+    }
 
-    public boolean hasLien() { return lienHolderUuid != null; }
-
+    /**
+     * Checks if a location is inside this plot.
+     * Horizontal: square radius
+     * Vertical: 64 blocks total (32 down, 32 up from centerY)
+     */
     public boolean contains(Location loc) {
+
         if (loc == null || loc.getWorld() == null) return false;
-        if (!loc.getWorld().getUID().equals(worldId)) return false;
 
-        int x = loc.getBlockX();
-        int y = loc.getBlockY();
-        int z = loc.getBlockZ();
+        if (!loc.getWorld().getName().equalsIgnoreCase(worldName)) {
+            return false;
+        }
 
-        return x >= minX && x <= maxX
-                && y >= minY && y <= maxY
-                && z >= minZ && z <= maxZ;
-    }
+        int dx = Math.abs(loc.getBlockX() - centerX);
+        int dz = Math.abs(loc.getBlockZ() - centerZ);
 
-    public World getWorld() {
-        return Bukkit.getWorld(worldId);
+        // Horizontal square protection
+        if (dx > radius || dz > radius) {
+            return false;
+        }
+
+        return dx <= radius && dz <= radius;
     }
 }
