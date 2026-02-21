@@ -49,6 +49,63 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         return burg != null && burg.getLeaderUuid() != null && burg.getLeaderUuid().equals(player);
     }
 
+    /** A burg is considered orphaned if it has no leader, or the leader is not a current member. */
+    private boolean isOrphaned(Burg burg) {
+        if (burg == null) return true;
+        UUID leader = burg.getLeaderUuid();
+        return leader == null || burg.getMembers() == null || !burg.getMembers().contains(leader);
+    }
+
+    /**
+     * Safely set leader UUID. Uses a public setter if present, otherwise falls back to a field named "leaderUuid".
+     */
+    private boolean trySetLeader(Burg burg, UUID newLeader) {
+        if (burg == null) return false;
+        try {
+            var m = burg.getClass().getMethod("setLeaderUuid", UUID.class);
+            m.invoke(burg, newLeader);
+            return true;
+        } catch (NoSuchMethodException ignored) {
+            try {
+                var f = burg.getClass().getDeclaredField("leaderUuid");
+                f.setAccessible(true);
+                f.set(burg, newLeader);
+                return true;
+            } catch (Exception e) {
+                plugin.getLogger().warning("Could not set burg leader (no setLeaderUuid + no leaderUuid field): " + e.getMessage());
+                return false;
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Could not set burg leader: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** Picks a successor for mayor. Prefers online members, then any remaining member. */
+    private UUID pickSuccessor(Burg burg, UUID exclude) {
+        if (burg == null || burg.getMembers() == null) return null;
+
+        for (UUID u : burg.getMembers()) {
+            if (u == null || u.equals(exclude)) continue;
+            Player p = Bukkit.getPlayer(u);
+            if (p != null && p.isOnline()) return u;
+        }
+        for (UUID u : burg.getMembers()) {
+            if (u == null || u.equals(exclude)) continue;
+            return u;
+        }
+        return null;
+    }
+
+    private String nameOf(UUID uuid) {
+        if (uuid == null) return "(none)";
+        Player p = Bukkit.getPlayer(uuid);
+        if (p != null) return p.getName();
+        OfflinePlayer off = Bukkit.getOfflinePlayer(uuid);
+        return (off.getName() != null ? off.getName() : uuid.toString());
+    }
+
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String sub = (args.length == 0) ? "" : args[0].toLowerCase(Locale.ROOT);
@@ -236,10 +293,16 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // simple join: must be standing in the claim
         if (!here.getMembers().add(player.getUniqueId())) {
             player.sendMessage(c("&cYou are already a member."));
             return true;
+        }
+
+        // Auto-promote if the burg is orphaned (no valid leader).
+        if (isOrphaned(here)) {
+            if (trySetLeader(here, player.getUniqueId())) {
+                player.sendMessage(c("&eThis burg was orphaned. You have been auto-promoted to &6Mayor&e."));
+            }
         }
 
         burgManager.save(here);
@@ -261,14 +324,39 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        if (isMayor(burg, player.getUniqueId())) {
-            sender.sendMessage(c("&cYou are the mayor. Abdicate first (not implemented here)."));
+        UUID me = player.getUniqueId();
+
+        // Mayors leaving is sensitive: require OP (server authority) to prevent griefy leadership dumps.
+        if (isMayor(burg, me) && !player.isOp()) {
+            sender.sendMessage(c("&cMayors cannot use &f/burg leave&c. Use &f/burg abdicate&c to pass leadership first, or ask an OP."));
             return true;
         }
 
-        burg.getMembers().remove(player.getUniqueId());
-        burgManager.save(burg);
+        if (isMayor(burg, me)) {
+            // OP mayor is allowed to leave: auto-promote successor (or orphan if nobody remains).
+            burg.getMembers().remove(me);
 
+            UUID successor = pickSuccessor(burg, me);
+            if (successor == null) {
+                trySetLeader(burg, null);
+                burgManager.save(burg);
+                sender.sendMessage(c("&eYou left &f" + burg.getName() + "&e. The burg is now &6orphaned&e."));
+                return true;
+            }
+
+            trySetLeader(burg, successor);
+            burgManager.save(burg);
+
+            sender.sendMessage(c("&eYou left &f" + burg.getName() + "&e. &6" + nameOf(successor) + "&e is now Mayor."));
+            Player succP = Bukkit.getPlayer(successor);
+            if (succP != null) {
+                succP.sendMessage(c("&aYou have been promoted to &6Mayor&a of &f" + burg.getName()));
+            }
+            return true;
+        }
+
+        burg.getMembers().remove(me);
+        burgManager.save(burg);
         sender.sendMessage(c("&aYou left &f" + burg.getName()));
         return true;
     }
@@ -378,7 +466,41 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
     /* ================= ABDICATE ================= */
 
     private boolean handleAbdicate(CommandSender sender) {
-        sender.sendMessage(c("&cAbdicate not implemented in this command yet."));
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(c("&cPlayers only."));
+            return true;
+        }
+
+        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+        if (burg == null) {
+            sender.sendMessage(c("&cYou are not in a burg."));
+            return true;
+        }
+
+        UUID me = player.getUniqueId();
+        if (!isMayor(burg, me)) {
+            sender.sendMessage(c("&cOnly the mayor can abdicate."));
+            return true;
+        }
+
+        UUID successor = pickSuccessor(burg, me);
+        if (successor == null) {
+            sender.sendMessage(c("&cNo eligible successor. If you want this burg to become orphaned, an OP can remove the leader."));
+            return true;
+        }
+
+        if (!trySetLeader(burg, successor)) {
+            sender.sendMessage(c("&cFailed to set new mayor (leader field/setter not found)."));
+            return true;
+        }
+
+        burgManager.save(burg);
+        sender.sendMessage(c("&aYou abdicated. &6" + nameOf(successor) + "&a is now Mayor of &f" + burg.getName()));
+
+        Player succP = Bukkit.getPlayer(successor);
+        if (succP != null) {
+            succP.sendMessage(c("&aYou have been promoted to &6Mayor&a of &f" + burg.getName()));
+        }
         return true;
     }
 
