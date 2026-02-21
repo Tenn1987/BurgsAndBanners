@@ -333,10 +333,13 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         }
 
         if (isMayor(burg, me)) {
-            // OP mayor is allowed to leave: auto-promote successor (or orphan if nobody remains).
-            burg.getMembers().remove(me);
-
+            // Pick successor BEFORE removing 'me'
             UUID successor = pickSuccessor(burg, me);
+
+            // Remove membership using manager so memberToBurgId index is updated
+            burgManager.removeMember(me);
+
+            // If nobody remains, orphan (leader = null); otherwise set successor
             if (successor == null) {
                 trySetLeader(burg, null);
                 burgManager.save(burg);
@@ -355,8 +358,8 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        burg.getMembers().remove(me);
-        burgManager.save(burg);
+        // Non-mayor: just remove
+        burgManager.removeMember(me);
         sender.sendMessage(c("&aYou left &f" + burg.getName()));
         return true;
     }

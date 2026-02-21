@@ -170,10 +170,28 @@ public class BurgManager {
         return burg;
     }
 
-    public void onMemberLeft(Burg burg, UUID member) {
-        memberToBurgId.remove(member);
-        storage.saveBurg(burg);
+    public boolean removeMember(UUID playerId) {
+        if (playerId == null) return false;
+
+        Burg burg = getBurgByMember(playerId);
+        if (burg == null) return false;
+
+        // remove from burg members list/set
+        burg.getMembers().remove(playerId);
+
+        // remove from index map (THIS is what was keeping them "in a burg")
+        memberToBurgId.remove(playerId);
+
+        // if they were leader, clear leader here (or leave it for caller to handle succession)
+        if (burg.getLeaderUuid() != null && burg.getLeaderUuid().equals(playerId)) {
+            burg.setLeaderUuid(null); // or whatever your setter is
+        }
+
+        save(burg);
+        return true;
     }
+
+
 
     /**
      * ✅ Join a burg (adds to burg members + member index).
@@ -189,11 +207,7 @@ public class BurgManager {
         if (burg.getMembers().contains(player)) return false;
 
         burg.getMembers().add(player);
-        // keep your existing member index in sync:
-        // if you use a map like memberToBurgId, update it here.
-        // If you DON’T have an index map, skip this line.
-        // memberToBurgId.put(player, burg.getId());
-
+        memberToBurgId.put(player, burg.getId());
         save(burg);
         return true;
     }
