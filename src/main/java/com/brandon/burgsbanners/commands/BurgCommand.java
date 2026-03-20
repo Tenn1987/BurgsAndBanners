@@ -1,5 +1,7 @@
 package com.brandon.burgsbanners.commands;
 
+import com.brandon.burgsbanners.bond.BurgBond;
+import com.brandon.burgsbanners.bond.BurgBondManager;
 import com.brandon.burgsbanners.burg.Burg;
 import com.brandon.burgsbanners.burg.BurgManager;
 import com.brandon.burgsbanners.burg.ChunkClaim;
@@ -26,19 +28,26 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
     private final BurgManager burgManager;
     private final FoodScanService foodScanService;
     private final MpcHook mpc;
+    private final BurgBondManager bondManager;
 
     // per-player plot selections (no persistence)
     private final Map<UUID, PlotSelection> plotSelections = new HashMap<>();
 
     private static final List<String> SUBS = List.of(
-            "found", "info", "treasury", "claim", "unclaim", "join", "leave", "abdicate", "plot"
+            "found", "info", "treasury", "claim", "unclaim",
+            "join", "leave", "abdicate", "plot", "bonds"
     );
 
-    public BurgCommand(JavaPlugin plugin, BurgManager burgManager, FoodScanService foodScanService, MpcHook mpc) {
+    public BurgCommand(JavaPlugin plugin,
+                       BurgManager burgManager,
+                       FoodScanService foodScanService,
+                       MpcHook mpc,
+                       BurgBondManager bondManager) {
         this.plugin = plugin;
         this.burgManager = burgManager;
         this.foodScanService = foodScanService;
         this.mpc = mpc;
+        this.bondManager = bondManager;
     }
 
     private Component c(String s) {
@@ -120,6 +129,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             case "leave" -> handleLeave(sender);
             case "abdicate" -> handleAbdicate(sender);
             case "plot" -> handlePlot(sender, label, args);
+            case "bonds" -> handleBonds(sender, label, args);
             default -> {
                 help(sender, label);
                 yield true;
@@ -162,6 +172,11 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                         .collect(Collectors.toList());
             }
         }
+        if (args.length == 2 && args[0].equalsIgnoreCase("bonds")) {
+            List<String> subs = List.of("buy", "redeem", "list", "debug");
+            String p = args[1].toLowerCase(Locale.ROOT);
+            return subs.stream().filter(s -> s.startsWith(p)).collect(Collectors.toList());
+        }
 
         return Collections.emptyList();
     }
@@ -178,6 +193,9 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(c("&e/" + label + " join"));
         sender.sendMessage(c("&e/" + label + " leave"));
         sender.sendMessage(c("&e/" + label + " plot pos1|pos2|create|show|list|assign|unassign"));
+        sender.sendMessage(c("&e/" + label + " bonds buy <amount>"));
+        sender.sendMessage(c("&e/" + label + " bonds redeem"));
+        sender.sendMessage(c("&e/" + label + " bonds list"));
     }
 
     /* ================= FOUND ================= */
@@ -736,6 +754,157 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
         }
+    }
+
+    private boolean handleBonds(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(c("&cPlayers only."));
+            return true;
+        }
+
+        if (mpc == null || !mpc.isHooked()) {
+            sender.sendMessage(c("&cMultiPolarCurrency not available."));
+            return true;
+        }
+
+        if (args.length < 2) {
+            sender.sendMessage(c("&cUsage: /" + label + " bonds <buy|redeem|list|debug>"));
+            return true;
+        }
+
+        Burg burg = burgManager.getBurgAt(player.getLocation());
+        if (burg == null) {
+            sender.sendMessage(c("&cYou are not standing inside a burg."));
+            return true;
+        }
+
+        String action = args[1].toLowerCase(Locale.ROOT);
+        String currency = burg.getAdoptedCurrencyCode();
+
+        switch (action) {
+            case "buy" -> {
+                if (args.length < 3) {
+                    sender.sendMessage(c("&cUsage: /" + label + " bonds buy <amount>"));
+                    return true;
+                }
+
+                long amount;
+                try {
+                    amount = Long.parseLong(args[2]);
+                } catch (NumberFormatException ex) {
+                    sender.sendMessage(c("&cInvalid amount."));
+                    return true;
+                }
+
+                if (amount <= 0) {
+                    sender.sendMessage(c("&cAmount must be positive."));
+                    return true;
+                }
+
+                if (!mpc.currencyExists(currency)) {
+                    sender.sendMessage(c("&cUnknown burg currency: &f" + currency));
+                    return true;
+                }
+
+                long bal = mpc.getBalance(player, currency);
+                if (bal < amount) {
+                    sender.sendMessage(c("&cYou need &f" + amount + " " + currency + "&c, but only have &f" + bal));
+                    return true;
+                }
+
+                try {
+                    mpc.withdraw(player, currency, amount);
+                    burg.creditTreasury(currency, amount);
+                    burgManager.save(burg);
+
+                    BurgBond bond = bondManager.issueBond(
+                            burg,
+                            player.getUniqueId(),
+                            amount,
+                            0.10,
+                            72L * 60L * 60L * 1000L
+                    );
+                    bondManager.saveAll();
+
+                    sender.sendMessage(c("&aPurchased bond in &f" + burg.getName()
+                            + "&a: &f" + amount + " " + currency
+                            + "&a -> payout &f" + bond.getPayout() + " " + currency));
+                } catch (Exception ex) {
+                    plugin.getLogger().warning("[Bonds] Buy failed for " + player.getName() + ": " + ex.getMessage());
+                    sender.sendMessage(c("&cBond purchase failed. Check console."));
+                }
+            }
+
+            case "redeem" -> {
+                List<BurgBond> mature = bondManager.getMatureBonds(player.getUniqueId(), burg.getId());
+                if (mature.isEmpty()) {
+                    sender.sendMessage(c("&eNo mature bonds to redeem in this burg."));
+                    return true;
+                }
+
+                int redeemed = 0;
+                int failed = 0;
+
+                for (BurgBond bond : mature) {
+                    if (bondManager.redeemBond(burg, bond)) {
+                        try {
+                            mpc.deposit(player, bond.getCurrency(), bond.getPayout());
+                            redeemed++;
+                        } catch (Exception ex) {
+                            failed++;
+                            plugin.getLogger().warning("[Bonds] Deposit failed during redeem for " + player.getName()
+                                    + " bond " + bond.getBondId() + ": " + ex.getMessage());
+                        }
+                    } else {
+                        failed++;
+                    }
+                }
+
+                burgManager.save(burg);
+                bondManager.saveAll();
+
+                if (redeemed > 0) {
+                    sender.sendMessage(c("&aRedeemed &f" + redeemed + "&a bond(s)."));
+                }
+                if (failed > 0) {
+                    sender.sendMessage(c("&c" + failed + " bond(s) could not be redeemed."));
+                }
+            }
+
+            case "list" -> {
+                List<BurgBond> mine = bondManager.getPlayerBonds(player.getUniqueId());
+                if (mine.isEmpty()) {
+                    sender.sendMessage(c("&eYou do not hold any bonds."));
+                    return true;
+                }
+
+                sender.sendMessage(c("&6== &eYour Bonds &6=="));
+                for (BurgBond bond : mine) {
+                    String status = bond.isRedeemed() ? "&7redeemed"
+                            : bond.isMature() ? "&amature"
+                            : "&eyielding";
+                    sender.sendMessage(c("&f" + bond.getBondId().toString().substring(0, 8)
+                            + " &7burg=&f" + bond.getBurgId()
+                            + " &7principal=&f" + bond.getPrincipal() + " " + bond.getCurrency()
+                            + " &7payout=&f" + bond.getPayout()
+                            + " &7status=" + status));
+                }
+            }
+
+            case "debug" -> {
+                long debt = bondManager.getOutstandingDebt(burg.getId(), currency);
+                sender.sendMessage(c("&6== &eBond Debug &6=="));
+                sender.sendMessage(c("&7Burg: &f" + burg.getName() + " &8(" + burg.getId() + ")"));
+                sender.sendMessage(c("&7Currency: &f" + currency));
+                sender.sendMessage(c("&7Treasury balance: &f" + burg.getTreasuryBalance(currency)));
+                sender.sendMessage(c("&7Outstanding bond debt: &f" + debt));
+                sender.sendMessage(c("&7Your bond count: &f" + bondManager.getPlayerBonds(player.getUniqueId()).size()));
+            }
+
+            default -> sender.sendMessage(c("&cUsage: /" + label + " bonds <buy|redeem|list|debug>"));
+        }
+
+        return true;
     }
 
     /* ================= VISUALIZER ================= */

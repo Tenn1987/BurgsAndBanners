@@ -1,5 +1,7 @@
 package com.brandon.burgsbanners;
 
+import com.brandon.burgsbanners.bond.BondStorage;
+import com.brandon.burgsbanners.bond.BurgBondManager;
 import com.brandon.burgsbanners.burg.BurgManager;
 import com.brandon.burgsbanners.burg.food.FoodScanService;
 import com.brandon.burgsbanners.burg.food.FoodScanScheduler;
@@ -22,6 +24,8 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
 
     private BurgStorage burgStorage;
     private BurgManager burgManager;
+    private BondStorage bondStorage;
+    private BurgBondManager bondManager;
 
     private MpcHook mpcHook;
     private FoodScanService foodScanService;
@@ -34,6 +38,11 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
 
         this.burgStorage = new BurgStorage(this);
         this.burgManager = new BurgManager(this, burgStorage);
+
+        this.bondStorage = new BondStorage(this);
+        this.bondManager = new BurgBondManager(this, bondStorage);
+        bondManager.loadAll();
+        bondManager.debugDumpToLog();
 
         // Load burgs from burgs.yml
         burgManager.loadAll();
@@ -48,7 +57,7 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         this.foodScanScheduler = new FoodScanScheduler(this, burgManager, burgStorage, foodScanService);
         this.foodScanScheduler.start();
 
-        BurgCommand burgCommand = new BurgCommand(this, burgManager, foodScanService, mpcHook);
+        BurgCommand burgCommand = new BurgCommand(this, burgManager, foodScanService, mpcHook, bondManager);
 
         if (getCommand("burg") != null) {
             getCommand("burg").setExecutor(burgCommand);
@@ -119,5 +128,11 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
             burgManager.saveAll();
         }
         if (this.dynmapHook != null) this.dynmapHook.shutdown();
+        if (bondManager != null) {
+            bondManager.saveAll();
+        }
+    }
+    public BurgBondManager getBondManager() {
+        return bondManager;
     }
 }
