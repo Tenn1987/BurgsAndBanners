@@ -814,7 +814,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
 
                 try {
                     mpc.withdraw(player, currency, amount);
-                    burg.creditTreasury(currency, amount);
+                    mpc.deposit(burg.getTreasuryUuid(), currency, amount);
                     burgManager.save(burg);
 
                     BurgBond bond = bondManager.issueBond(

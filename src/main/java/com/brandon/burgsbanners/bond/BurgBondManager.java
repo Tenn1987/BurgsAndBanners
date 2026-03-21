@@ -1,6 +1,7 @@
 package com.brandon.burgsbanners.bond;
 
 import com.brandon.burgsbanners.burg.Burg;
+import com.brandon.burgsbanners.mpc.MpcHook;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
@@ -11,10 +12,12 @@ public class BurgBondManager {
     private final JavaPlugin plugin;
     private final BondStorage storage;
     private final Map<UUID, BurgBond> bonds = new HashMap<>();
+    private final MpcHook mpc;
 
-    public BurgBondManager(JavaPlugin plugin, BondStorage storage) {
+    public BurgBondManager(JavaPlugin plugin, BondStorage storage, MpcHook mpc) {
         this.plugin = plugin;
         this.storage = storage;
+        this.mpc = mpc;
     }
 
     public void loadAll() {
@@ -69,7 +72,7 @@ public class BurgBondManager {
         if (!bond.isMature()) return false;
         if (!burg.getId().equalsIgnoreCase(bond.getBurgId())) return false;
 
-        boolean ok = burg.debitTreasury(bond.getCurrency(), bond.getPayout());
+        boolean ok = mpc.withdraw(burg.getTreasuryUuid(), bond.getCurrency(), bond.getPayout());
         if (!ok) return false;
 
         bond.setRedeemed(true);

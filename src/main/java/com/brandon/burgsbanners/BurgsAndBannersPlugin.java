@@ -40,7 +40,7 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         this.burgManager = new BurgManager(this, burgStorage);
 
         this.bondStorage = new BondStorage(this);
-        this.bondManager = new BurgBondManager(this, bondStorage);
+        this.bondManager = new BurgBondManager(this, bondStorage, mpcHook);
         bondManager.loadAll();
         bondManager.debugDumpToLog();
 
