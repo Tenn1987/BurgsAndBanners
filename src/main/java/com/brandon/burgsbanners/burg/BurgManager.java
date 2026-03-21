@@ -217,5 +217,10 @@ public class BurgManager {
         return burg != null ? burg.getMoneychangerFeeRate() : 0.0;
     }
 
+    public Burg getBurgById(String id) {
+        if (id == null) return null;
+        return burgsById.get(id);
+    }
+
 
 }

@@ -29,6 +29,7 @@ public final class BurgBellUI {
 
     public static final String KEY_ACTION = "bb_action";
     public static final String KEY_RATE = "bb_rate";
+    public static final String KEY_DELTA = "bb_delta";
 
     // Charter persistent data
     public static final String KEY_CHARTER_ISSUER = "charter_issuer";
@@ -83,12 +84,19 @@ public final class BurgBellUI {
         ItemStack filler = filler();
         for (int i = 0; i < inv.getSize(); i++) inv.setItem(i, filler);
 
-        inv.setItem(10, rateButton(plugin, Material.LIME_DYE, "0%", "SET_SALES", 0.00));
-        inv.setItem(11, rateButton(plugin, Material.LIME_DYE, "1%", "SET_SALES", 0.01));
-        inv.setItem(12, rateButton(plugin, Material.LIME_DYE, "2%", "SET_SALES", 0.02));
-        inv.setItem(13, rateButton(plugin, Material.YELLOW_DYE, "3%", "SET_SALES", 0.03));
-        inv.setItem(14, rateButton(plugin, Material.YELLOW_DYE, "4%", "SET_SALES", 0.04));
-        inv.setItem(15, rateButton(plugin, Material.RED_DYE, "5%", "SET_SALES", 0.05));
+        inv.setItem(11, deltaButton(plugin, Material.RED_DYE, "-5%", "ADJUST_SALES", -0.05));
+        inv.setItem(12, deltaButton(plugin, Material.YELLOW_DYE, "-1%", "ADJUST_SALES", -0.01));
+
+        inv.setItem(13, button(plugin, Material.PAPER,
+                Component.text("Current: " + String.format("%.1f%%", burg.getSalesTaxRate() * 100.0)),
+                List.of(
+                        Component.text("Min: 0.0%"),
+                        Component.text("Max: " + String.format("%.1f%%", Burg.MAX_SALES_TAX * 100.0))
+                ),
+                "NOOP", null));
+
+        inv.setItem(14, deltaButton(plugin, Material.YELLOW_DYE, "+1%", "ADJUST_SALES", 0.01));
+        inv.setItem(15, deltaButton(plugin, Material.LIME_DYE, "+5%", "ADJUST_SALES", 0.05));
 
         inv.setItem(22, button(plugin, Material.ARROW, Component.text("Back"), List.of(), "BACK_MAIN", null));
 
@@ -100,19 +108,26 @@ public final class BurgBellUI {
         ItemStack filler = filler();
         for (int i = 0; i < inv.getSize(); i++) inv.setItem(i, filler);
 
-        inv.setItem(10, rateButton(plugin, Material.LIME_DYE, "0%", "SET_MCFEE", 0.00));
-        inv.setItem(11, rateButton(plugin, Material.LIME_DYE, "1%", "SET_MCFEE", 0.01));
-        inv.setItem(12, rateButton(plugin, Material.YELLOW_DYE, "2%", "SET_MCFEE", 0.02));
-        inv.setItem(13, rateButton(plugin, Material.YELLOW_DYE, "3%", "SET_MCFEE", 0.03));
-        inv.setItem(14, rateButton(plugin, Material.RED_DYE, "4%", "SET_MCFEE", 0.04));
-        inv.setItem(15, rateButton(plugin, Material.RED_DYE, "5%", "SET_MCFEE", 0.05));
+        inv.setItem(11, deltaButton(plugin, Material.RED_DYE, "-5%", "ADJUST_MCFEE", -0.05));
+        inv.setItem(12, deltaButton(plugin, Material.YELLOW_DYE, "-1%", "ADJUST_MCFEE", -0.01));
+
+        inv.setItem(13, button(plugin, Material.PAPER,
+                Component.text("Current: " + String.format("%.1f%%", burg.getMoneychangerFeeRate() * 100.0)),
+                List.of(
+                        Component.text("Min: 0.0%"),
+                        Component.text("Max: " + String.format("%.1f%%", Burg.MAX_MONEYCHANGER_FEE * 100.0))
+                ),
+                "NOOP", null));
+
+        inv.setItem(14, deltaButton(plugin, Material.YELLOW_DYE, "+1%", "ADJUST_MCFEE", 0.01));
+        inv.setItem(15, deltaButton(plugin, Material.LIME_DYE, "+5%", "ADJUST_MCFEE", 0.05));
 
         inv.setItem(22, button(plugin, Material.ARROW, Component.text("Back"), List.of(), "BACK_MAIN", null));
 
         p.openInventory(inv);
     }
 
-    public static ItemStack createCharterBell(JavaPlugin plugin, Burg issuerBurg, long seedFund) {
+    public static ItemStack createCharterBell(JavaPlugin plugin, Burg issuerBurg) {
         ItemStack bell = new ItemStack(Material.BELL);
         ItemMeta meta = bell.getItemMeta();
         if (meta != null) {
@@ -120,17 +135,15 @@ public final class BurgBellUI {
             meta.lore(List.of(
                     Component.text("Issuer: " + issuerBurg.getName()),
                     Component.text("Currency: " + issuerBurg.getAdoptedCurrencyCode()),
-                    Component.text("Seed Treasury: " + seedFund)
+                    Component.text("Redeem to found a new burg")
             ));
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 
             NamespacedKey issuerKey = new NamespacedKey(plugin, KEY_CHARTER_ISSUER);
             NamespacedKey currencyKey = new NamespacedKey(plugin, KEY_CHARTER_CURRENCY);
-            NamespacedKey seedKey = new NamespacedKey(plugin, KEY_CHARTER_SEED);
 
             meta.getPersistentDataContainer().set(issuerKey, PersistentDataType.STRING, issuerBurg.getName());
             meta.getPersistentDataContainer().set(currencyKey, PersistentDataType.STRING, issuerBurg.getAdoptedCurrencyCode());
-            meta.getPersistentDataContainer().set(seedKey, PersistentDataType.LONG, seedFund);
 
             bell.setItemMeta(meta);
         }
@@ -162,11 +175,38 @@ public final class BurgBellUI {
         return meta.getPersistentDataContainer().get(k, PersistentDataType.DOUBLE);
     }
 
+    public static Double getDelta(JavaPlugin plugin, ItemStack clicked) {
+        if (clicked == null || clicked.getType() == Material.AIR) return null;
+        ItemMeta meta = clicked.getItemMeta();
+        if (meta == null) return null;
+        NamespacedKey k = new NamespacedKey(plugin, KEY_DELTA);
+        return meta.getPersistentDataContainer().get(k, PersistentDataType.DOUBLE);
+    }
+
     private static ItemStack rateButton(JavaPlugin plugin, Material mat, String label, String action, double rate) {
         return button(plugin, mat,
                 Component.text(label),
                 List.of(Component.text("Click to apply")),
                 action, rate);
+    }
+
+    private static ItemStack deltaButton(JavaPlugin plugin, Material mat, String label, String action, double delta) {
+        ItemStack it = new ItemStack(mat);
+        ItemMeta meta = it.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(label));
+            meta.lore(List.of(Component.text("Click to adjust")));
+            meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+
+            NamespacedKey actionKey = new NamespacedKey(plugin, KEY_ACTION);
+            meta.getPersistentDataContainer().set(actionKey, PersistentDataType.STRING, action);
+
+            NamespacedKey deltaKey = new NamespacedKey(plugin, KEY_DELTA);
+            meta.getPersistentDataContainer().set(deltaKey, PersistentDataType.DOUBLE, delta);
+
+            it.setItemMeta(meta);
+        }
+        return it;
     }
 
     private static ItemStack button(JavaPlugin plugin, Material mat, Component name, List<Component> lore, String action, Double rate) {

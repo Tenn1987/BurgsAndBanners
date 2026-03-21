@@ -883,8 +883,14 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
                     String status = bond.isRedeemed() ? "&7redeemed"
                             : bond.isMature() ? "&amature"
                             : "&eyielding";
+
+                    Burg bondBurg = burgManager.getBurgById(bond.getBurgId());
+                    String burgName = (bondBurg != null && bondBurg.getName() != null)
+                            ? bondBurg.getName()
+                            : bond.getBurgId();
+
                     sender.sendMessage(c("&f" + bond.getBondId().toString().substring(0, 8)
-                            + " &7burg=&f" + bond.getBurgId()
+                            + " &7burg=&f" + burgName
                             + " &7principal=&f" + bond.getPrincipal() + " " + bond.getCurrency()
                             + " &7payout=&f" + bond.getPayout()
                             + " &7status=" + status));

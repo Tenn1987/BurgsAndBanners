@@ -49,6 +49,8 @@ public class BurgBellGUIListener implements Listener {
         if (action == null) return;
 
         switch (action) {
+            case "NOOP" -> { }
+
             case "VIEW_TAX" -> {
                 p.sendMessage(Component.text("Taxes for " + burg.getName()));
                 p.sendMessage(Component.text("Sales: " + fmtPct(burg.getSalesTaxRate()) + " (max " + fmtPct(Burg.MAX_SALES_TAX) + ")"));
@@ -62,9 +64,6 @@ public class BurgBellGUIListener implements Listener {
                 }
 
                 long cost = plugin.getConfig().getLong("founding.charterCost", 1000L);
-                long issuerShare = cost / 2;
-                long seedShare = cost - issuerShare;
-
                 String cur = burg.getAdoptedCurrencyCode();
 
                 if (mpc.getBalance(p, cur) < cost) {
@@ -75,17 +74,16 @@ public class BurgBellGUIListener implements Listener {
                 // withdraw from player
                 mpc.withdraw(p, cur, cost);
 
-                // issuer gets 500
+                // all 1000 goes to selling burg treasury
                 UUID treasuryId = burg.getTreasuryUuid();
                 mpc.touch(treasuryId, cur);
-                mpc.deposit(treasuryId, cur, issuerShare);
+                mpc.deposit(treasuryId, cur, cost);
 
-                // charter holds seed 500
-                ItemStack charter = BurgBellUI.createCharterBell(plugin, burg, seedShare);
+                ItemStack charter = BurgBellUI.createCharterBell(plugin, burg);
                 p.getInventory().addItem(charter);
 
                 p.sendMessage(Component.text("Purchased a Burg Charter from " + burg.getName()
-                        + " for " + cost + " " + cur + ". (" + issuerShare + " issuer / " + seedShare + " seed)"));
+                        + " for " + cost + " " + cur + "."));
             }
 
             case "OPEN_SETTINGS" -> {
@@ -98,38 +96,38 @@ public class BurgBellGUIListener implements Listener {
 
             case "BACK_MAIN" -> BurgBellUI.openMain(plugin, p, burg, burgManager, mpc);
 
-            case "SET_SALES" -> {
+            case "ADJUST_SALES" -> {
                 if (!isMayorOrOp(p, burg)) {
                     p.sendMessage(Component.text("Only the burg mayor can set taxes."));
                     return;
                 }
 
-                Double rate = BurgBellUI.getRate(plugin, clicked);
-                if (rate == null) return;
+                Double delta = BurgBellUI.getDelta(plugin, clicked);
+                if (delta == null) return;
 
-                double clamped = clamp(rate, 0.0, Burg.MAX_SALES_TAX);
+                double clamped = clamp(burg.getSalesTaxRate() + delta, 0.0, Burg.MAX_SALES_TAX);
                 burg.setSalesTaxRate(clamped);
                 burgManager.save(burg);
 
                 p.sendMessage(Component.text("Sales tax set to " + fmtPct(clamped) + " for " + burg.getName() + "."));
-                BurgBellUI.openMcFeeMenu(plugin, p, burg);
+                BurgBellUI.openSalesMenu(plugin, p, burg);
             }
 
-            case "SET_MCFEE" -> {
+            case "ADJUST_MCFEE" -> {
                 if (!isMayorOrOp(p, burg)) {
                     p.sendMessage(Component.text("Only the burg mayor can set taxes."));
                     return;
                 }
 
-                Double rate = BurgBellUI.getRate(plugin, clicked);
-                if (rate == null) return;
+                Double delta = BurgBellUI.getDelta(plugin, clicked);
+                if (delta == null) return;
 
-                double clamped = clamp(rate, 0.0, Burg.MAX_MONEYCHANGER_FEE);
+                double clamped = clamp(burg.getMoneychangerFeeRate() + delta, 0.0, Burg.MAX_MONEYCHANGER_FEE);
                 burg.setMoneychangerFeeRate(clamped);
                 burgManager.save(burg);
 
                 p.sendMessage(Component.text("Moneychanger fee set to " + fmtPct(clamped) + " for " + burg.getName() + "."));
-                BurgBellUI.openMain(plugin, p, burg, burgManager, mpc);
+                BurgBellUI.openMcFeeMenu(plugin, p, burg);
             }
         }
     }
