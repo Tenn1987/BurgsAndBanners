@@ -194,7 +194,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(c("&e/" + label + " leave"));
         sender.sendMessage(c("&e/" + label + " plot pos1|pos2|create|show|list|assign|unassign"));
         sender.sendMessage(c("&e/" + label + " bonds buy <amount>"));
-        sender.sendMessage(c("&e/" + label + " bonds redeem"));
+        sender.sendMessage(c("&e/" + label + " bonds redeem <bondId>"));
         sender.sendMessage(c("&e/" + label + " bonds list"));
     }
 
@@ -836,39 +836,73 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             }
 
             case "redeem" -> {
-                List<BurgBond> mature = bondManager.getMatureBonds(player.getUniqueId(), burg.getId());
-                if (mature.isEmpty()) {
-                    sender.sendMessage(c("&eNo mature bonds to redeem in this burg."));
+
+                if (args.length < 3) {
+                    sender.sendMessage(c("&cUsage: /" + label + " bonds redeem <bondId>"));
                     return true;
                 }
 
-                int redeemed = 0;
-                int failed = 0;
+                String inputId = args[2].toLowerCase(Locale.ROOT);
 
-                for (BurgBond bond : mature) {
-                    if (bondManager.redeemBond(burg, bond)) {
-                        try {
-                            mpc.deposit(player, bond.getCurrency(), bond.getPayout());
-                            redeemed++;
-                        } catch (Exception ex) {
-                            failed++;
-                            plugin.getLogger().warning("[Bonds] Deposit failed during redeem for " + player.getName()
-                                    + " bond " + bond.getBondId() + ": " + ex.getMessage());
-                        }
-                    } else {
-                        failed++;
-                    }
+                BurgBond bond;
+                try {
+                    bond = bondManager.findBondByPrefix(player.getUniqueId(), inputId);
+                } catch (IllegalArgumentException ex) {
+                    sender.sendMessage(c("&cAmbiguous bond ID. Be more specific."));
+                    return true;
                 }
+
+                if (bond == null) {
+                    sender.sendMessage(c("&cBond not found."));
+                    return true;
+                }
+
+                if (!bond.getBurgId().equals(burg.getId())) {
+                    sender.sendMessage(c("&cThis bond does not belong to this burg."));
+                    return true;
+                }
+
+                if (bond.isRedeemed()) {
+                    sender.sendMessage(c("&7This bond has already been redeemed."));
+                    return true;
+                }
+
+                if (!bond.isMature()) {
+                    sender.sendMessage(c("&eThis bond is still yielding."));
+                    return true;
+                }
+
+                // --- Treasury Check ---
+                long treasury = mpc.getBalance(burg.getTreasuryUuid(), bond.getCurrency());
+                long payout = bond.getPayout();
+
+                if (treasury < payout) {
+                    sender.sendMessage(c("&cTreasury cannot cover this bond right now."));
+                    sender.sendMessage(c("&7Available: &f" + treasury + " " + bond.getCurrency()));
+                    sender.sendMessage(c("&7Required: &f" + payout + " " + bond.getCurrency()));
+                    return true;
+                }
+
+                // --- Execute Redemption ---
+                boolean withdrawn = mpc.withdraw(burg.getTreasuryUuid(), bond.getCurrency(), payout);
+                if (!withdrawn) {
+                    sender.sendMessage(c("&cRedemption failed (treasury withdraw error)."));
+                    return true;
+                }
+
+                boolean deposited = mpc.deposit(player, bond.getCurrency(), payout);
+                if (!deposited) {
+                    sender.sendMessage(c("&cRedemption failed (player deposit error)."));
+                    return true;
+                }
+
+                bond.setRedeemed(true);
 
                 burgManager.save(burg);
                 bondManager.saveAll();
 
-                if (redeemed > 0) {
-                    sender.sendMessage(c("&aRedeemed &f" + redeemed + "&a bond(s)."));
-                }
-                if (failed > 0) {
-                    sender.sendMessage(c("&c" + failed + " bond(s) could not be redeemed."));
-                }
+                sender.sendMessage(c("&aRedeemed bond &f" + inputId
+                        + "&a for &f" + payout + " " + bond.getCurrency()));
             }
 
             case "list" -> {

@@ -104,7 +104,10 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
         Plugin p = getServer().getPluginManager().getPlugin("MultiPolarCurrency");
         if (p instanceof MultiPolarCurrencyPlugin mpc) {
             getServer().getPluginManager().registerEvents(new CoinsmithGUIListener(this, burgManager, mpc), this);
-            getServer().getPluginManager().registerEvents(new CoinsmithAnvilListener(this, burgManager), this);
+            getServer().getPluginManager().registerEvents(
+                    new CoinsmithAnvilListener(this, burgManager, mpc),
+                    this
+            );
             getLogger().info("[Coinsmith] Enabled (requires anvil sign).");
         } else {
             getLogger().warning("[Coinsmith] Disabled (MultiPolarCurrency not found).");

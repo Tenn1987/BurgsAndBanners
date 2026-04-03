@@ -3,12 +3,17 @@ package com.brandon.burgsbanners.mint;
 import com.brandon.burgsbanners.BurgsAndBannersPlugin;
 import com.brandon.burgsbanners.burg.Burg;
 import com.brandon.burgsbanners.burg.BurgManager;
+import com.brandon.multipolarcurrency.MultiPolarCurrencyPlugin;
+import com.brandon.multipolarcurrency.economy.currency.Currency;
+import com.brandon.multipolarcurrency.economy.currency.CurrencyManager;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
+import org.bukkit.block.sign.Side;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -17,15 +22,23 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 
 import java.util.Locale;
+import java.util.Optional;
 
 public class CoinsmithAnvilListener implements Listener {
 
     private final BurgsAndBannersPlugin plugin;
     private final BurgManager burgManager;
 
-    public CoinsmithAnvilListener(BurgsAndBannersPlugin plugin, BurgManager burgManager) {
+    private final MultiPolarCurrencyPlugin mpcPlugin;
+    private final CurrencyManager currencyManager;
+
+    public CoinsmithAnvilListener(BurgsAndBannersPlugin plugin,
+                                  BurgManager burgManager,
+                                  MultiPolarCurrencyPlugin mpcPlugin) {
         this.plugin = plugin;
         this.burgManager = burgManager;
+        this.mpcPlugin = mpcPlugin;
+        this.currencyManager = (mpcPlugin != null) ? mpcPlugin.getCurrencyManager() : null;
     }
 
     @EventHandler
@@ -35,10 +48,7 @@ public class CoinsmithAnvilListener implements Listener {
 
         Block anvil = event.getClickedBlock();
 
-        // Allow all anvil types
         if (!isAnvil(anvil.getType())) return;
-
-        // Require sign
         if (!hasCoinsmithSign(anvil)) return;
 
         Player player = event.getPlayer();
@@ -51,7 +61,25 @@ public class CoinsmithAnvilListener implements Listener {
 
         event.setCancelled(true);
 
-        // Bind burg context without using deprecated Metadata API
+        if (currencyManager == null) {
+            player.sendMessage("§cCurrency system not available.");
+            return;
+        }
+
+        String code = burg.getAdoptedCurrencyCode();
+        if (code == null || code.isBlank()) {
+            player.sendMessage("§cThis burg has no adopted currency.");
+            return;
+        }
+
+        Optional<Currency> currencyOpt = currencyManager.getCurrency(code.trim().toUpperCase(Locale.ROOT));
+        if (currencyOpt.isEmpty()) {
+            player.sendMessage("§cCurrency not found: §f" + code);
+            return;
+        }
+
+        Currency currency = currencyOpt.get();
+
         CoinsmithGUIListener.bind(player.getUniqueId(), burg);
 
         Inventory inv = Bukkit.createInventory(
@@ -60,7 +88,7 @@ public class CoinsmithAnvilListener implements Listener {
                 Component.text("Coinsmith - " + burg.getName())
         );
 
-        CoinsmithGUIListener.populate(inv);
+        CoinsmithGUIListener.populate(inv, currency);
         player.openInventory(inv);
     }
 
@@ -71,7 +99,6 @@ public class CoinsmithAnvilListener implements Listener {
     }
 
     private boolean hasCoinsmithSign(Block anvil) {
-        // Check all 4 sides + above
         Block[] candidates = new Block[] {
                 anvil.getRelative(1, 0, 0),
                 anvil.getRelative(-1, 0, 0),
@@ -84,18 +111,27 @@ public class CoinsmithAnvilListener implements Listener {
             if (!Tag.SIGNS.isTagged(b.getType())) continue;
             if (!(b.getState() instanceof Sign sign)) continue;
 
-            for (int i = 0; i < 4; i++) {
-                String line = strip(sign.getLine(i));
-                if (line.contains("COINSMITH")) return true;
+            if (signContainsCoinsmith(sign, Side.FRONT)) return true;
+            if (signContainsCoinsmith(sign, Side.BACK)) return true;
+        }
+
+        return false;
+    }
+
+    private boolean signContainsCoinsmith(Sign sign, Side side) {
+        for (int i = 0; i < 4; i++) {
+            String line = PlainTextComponentSerializer.plainText()
+                    .serialize(sign.getSide(side).line(i));
+
+            if (normalize(line).contains("COINSMITH")) {
+                return true;
             }
         }
         return false;
     }
 
-    private String strip(String s) {
+    private String normalize(String s) {
         if (s == null) return "";
-        return org.bukkit.ChatColor.stripColor(s)
-                .trim()
-                .toUpperCase(Locale.ROOT);
+        return s.trim().toUpperCase(Locale.ROOT);
     }
 }

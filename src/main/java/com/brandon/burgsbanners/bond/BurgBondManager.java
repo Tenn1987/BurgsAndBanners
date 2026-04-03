@@ -20,6 +20,20 @@ public class BurgBondManager {
         this.mpc = mpc;
     }
 
+    public BurgBond findBondByPrefix(UUID playerId, String prefix) {
+        if (prefix == null || prefix.length() < 4) return null;
+
+        List<BurgBond> matches = bonds.values().stream()
+                .filter(b -> b.getOwnerUuid().equals(playerId))
+                .filter(b -> b.getBondId().toString().startsWith(prefix.toLowerCase()))
+                .toList();
+
+        if (matches.isEmpty()) return null;
+        if (matches.size() > 1) throw new IllegalArgumentException("Ambiguous bond ID");
+
+        return matches.get(0);
+    }
+
     public void loadAll() {
         bonds.clear();
         bonds.putAll(storage.loadAll());

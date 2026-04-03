@@ -43,7 +43,6 @@ public class CoinsmithGUIListener implements Listener {
     public static final int SLOT_MINT = 22;
 
     // Rule: 9 backing items -> 8 units minted; 1 unit fee to treasury
-    private static final long REQUIRED_BACKING_ITEMS = 9L;
     private static final long MINTED_UNITS = 8L;
     private static final long FEE_UNITS = 1L;
 
@@ -62,13 +61,13 @@ public class CoinsmithGUIListener implements Listener {
         this.currencyManager = (mpcPlugin != null) ? mpcPlugin.getCurrencyManager() : null;
     }
 
-    public static void populate(Inventory inv) {
+    public static void populate(Inventory inv, Currency currency) {
         for (int i = 0; i < inv.getSize(); i++) {
             if (i == SLOT_INPUT) continue;
             inv.setItem(i, filler());
         }
         inv.setItem(SLOT_OUTPUT, outputPlaceholder());
-        inv.setItem(SLOT_MINT, mintButton());
+        inv.setItem(SLOT_MINT, mintButton(currency));
     }
 
     @EventHandler
@@ -125,7 +124,27 @@ public class CoinsmithGUIListener implements Listener {
         String title = PlainTextComponentSerializer.plainText().serialize(event.getView().title());
         if (title == null || !title.startsWith("Coinsmith")) return;
 
-        CONTEXT.remove(event.getPlayer().getUniqueId());
+        if (!(event.getPlayer() instanceof Player player)) {
+            CONTEXT.remove(event.getPlayer().getUniqueId());
+            return;
+        }
+
+        Inventory top = event.getView().getTopInventory();
+        ItemStack input = top.getItem(SLOT_INPUT);
+
+        // Return any remaining backing items to the player
+        if (input != null && !input.getType().isAir() && input.getAmount() > 0) {
+            ItemStack toReturn = input.clone();
+            top.setItem(SLOT_INPUT, null);
+
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(toReturn);
+            if (!leftovers.isEmpty()) {
+                leftovers.values().forEach(leftover ->
+                        player.getWorld().dropItemNaturally(player.getLocation(), leftover));
+            }
+        }
+
+        CONTEXT.remove(player.getUniqueId());
     }
 
     private void handleMint(Player player, Inventory gui) {
@@ -158,6 +177,9 @@ public class CoinsmithGUIListener implements Listener {
         }
 
         Currency currency = currencyOpt.get();
+        long itemsPerUnit = Math.max(1L, currency.unitsPerBackingItem());
+        long grossUnits = MINTED_UNITS + FEE_UNITS; // 8 to player + 1 fee
+        long requiredBackingItems = grossUnits * itemsPerUnit;
 
         if (!currency.enabled()) {
             player.sendMessage("§cThis currency is disabled: §f" + code);
@@ -203,21 +225,30 @@ public class CoinsmithGUIListener implements Listener {
             return;
         }
 
-        if (input.getAmount() < REQUIRED_BACKING_ITEMS) {
-            player.sendMessage("§cNeed §f" + REQUIRED_BACKING_ITEMS + "§c " + backingMat.name()
-                    + " to mint §f" + MINTED_UNITS + " " + code + "§c.");
+        if (input.getAmount() < requiredBackingItems) {
+            player.sendMessage("§cNeed §f" + requiredBackingItems + "§c " + backingMat.name()
+                    + "§c to mint §f" + MINTED_UNITS + " " + code
+                    + "§c (plus §f" + FEE_UNITS + "§c treasury fee unit).");
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 0.8f);
             return;
         }
 
         // Consume backing
-        input.setAmount(input.getAmount() - (int) REQUIRED_BACKING_ITEMS);
-        if (input.getAmount() <= 0) gui.setItem(SLOT_INPUT, null);
+        input.setAmount(input.getAmount() - (int) requiredBackingItems);
+        if (input.getAmount() <= 0) {
+            gui.setItem(SLOT_INPUT, null);
+        } else {
+            gui.setItem(SLOT_INPUT, input);
+        }
 
         // Mint physical coins to player (8 units)
         List<ItemStack> mintedStacks = PhysicalCurrencyFactory.createPhysical(mpcPlugin, currency, MINTED_UNITS);
         for (ItemStack stack : mintedStacks) {
-            player.getInventory().addItem(stack);
+            HashMap<Integer, ItemStack> leftovers = player.getInventory().addItem(stack);
+            if (!leftovers.isEmpty()) {
+                leftovers.values().forEach(leftover ->
+                        player.getWorld().dropItemNaturally(player.getLocation(), leftover));
+            }
         }
 
         // Ensure treasury UUID exists
@@ -228,7 +259,7 @@ public class CoinsmithGUIListener implements Listener {
         // Credit BaB display ledger
         burg.creditTreasury(code, FEE_UNITS);
 
-        // Deposit into MPC treasury wallet (reflection getter so it compiles even if jar isn't refreshed yet)
+        // Deposit into MPC treasury wallet
         boolean walletOk = false;
         try {
             WalletService ws = reflectWalletService(mpcPlugin);
@@ -274,15 +305,20 @@ public class CoinsmithGUIListener implements Listener {
         return it;
     }
 
-    private static ItemStack mintButton() {
+    private static ItemStack mintButton(Currency currency) {
+        long itemsPerUnit = Math.max(1L, currency.unitsPerBackingItem());
+        long grossUnits = MINTED_UNITS + FEE_UNITS;
+        long requiredBackingItems = grossUnits * itemsPerUnit;
+
         ItemStack it = new ItemStack(Material.LIME_WOOL);
         ItemMeta meta = it.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("§aMint"));
             meta.lore(List.of(
-                    Component.text("§7Consumes: §f" + REQUIRED_BACKING_ITEMS + " backing items"),
+                    Component.text("§7Consumes: §f" + requiredBackingItems + " backing items"),
                     Component.text("§7Produces: §f" + MINTED_UNITS + " units"),
-                    Component.text("§7Fee → Treasury: §f" + FEE_UNITS + " unit")
+                    Component.text("§7Fee → Treasury: §f" + FEE_UNITS + " unit"),
+                    Component.text("§7Rate: §f" + itemsPerUnit + " backing per unit")
             ));
             it.setItemMeta(meta);
         }
