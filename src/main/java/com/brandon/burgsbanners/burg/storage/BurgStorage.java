@@ -149,6 +149,10 @@ public class BurgStorage {
                                     ps.getInt("maxX"), ps.getInt("maxY"), ps.getInt("maxZ")
                             );
 
+                            p.setForSale(ps.getBoolean("forSale", false));
+                            p.setSalePrice(ps.getLong("salePrice", 0L));
+                            p.setSaleCurrencyCode(ps.getString("saleCurrencyCode", b.getAdoptedCurrencyCode()));
+
                             String ownerStr = ps.getString("ownerUuid");
                             if (ownerStr != null && !ownerStr.isBlank()) {
                                 p.setOwnerUuid(UUID.fromString(ownerStr));
@@ -237,6 +241,10 @@ public class BurgStorage {
 
                     ps.set("minX", p.getMinX()); ps.set("minY", p.getMinY()); ps.set("minZ", p.getMinZ());
                     ps.set("maxX", p.getMaxX()); ps.set("maxY", p.getMaxY()); ps.set("maxZ", p.getMaxZ());
+
+                    ps.set("forSale", p.isForSale());
+                    ps.set("salePrice", p.getSalePrice());
+                    ps.set("saleCurrencyCode", p.getSaleCurrencyCode());
 
                     ps.set("ownerUuid", p.getOwnerUuid() == null ? null : p.getOwnerUuid().toString());
                     ps.set("lienHolderUuid", p.getLienHolderUuid() == null ? null : p.getLienHolderUuid().toString());

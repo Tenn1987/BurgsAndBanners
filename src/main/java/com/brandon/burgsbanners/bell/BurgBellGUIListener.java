@@ -1,7 +1,7 @@
 package com.brandon.burgsbanners.bell;
-
 import com.brandon.burgsbanners.burg.Burg;
 import com.brandon.burgsbanners.burg.BurgManager;
+import com.brandon.burgsbanners.burg.plot.Plot;
 import com.brandon.burgsbanners.mpc.MpcHook;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -27,23 +27,32 @@ public class BurgBellGUIListener implements Listener {
     }
 
     @EventHandler
-    public void onClick(InventoryClickEvent e) {
-        if (!(e.getWhoClicked() instanceof Player p)) return;
+    public void onClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
 
-        String title = PlainTextComponentSerializer.plainText().serialize(e.getView().title());
+        String title = PlainTextComponentSerializer.plainText().serialize(event.getView().title());
         if (!(title.startsWith("Burg Bell - ")
                 || title.startsWith("Sales Tax - ")
-                || title.startsWith("Moneychanger Fee - "))) {
+                || title.startsWith("Moneychanger Fee - ")
+                || title.startsWith("Plots - "))) {
             return;
         }
 
-        e.setCancelled(true);
+        event.setCancelled(true);
 
-        ItemStack clicked = e.getCurrentItem();
-        if (clicked == null) return;
+        // Ignore clicks in the player's own inventory while a bell GUI is open.
+        if (event.getRawSlot() < 0 || event.getRawSlot() >= event.getView().getTopInventory().getSize()) {
+            return;
+        }
 
-        Burg burg = burgManager.getBurgAt(p.getLocation());
-        if (burg == null) return;
+        ItemStack clicked = event.getCurrentItem();
+        if (clicked == null || clicked.getType().isAir()) return;
+
+        Burg burg = burgManager.getBurgAt(player.getLocation());
+        if (burg == null) {
+            player.sendMessage(Component.text("You are no longer inside this burg."));
+            return;
+        }
 
         String action = BurgBellUI.getAction(plugin, clicked);
         if (action == null) return;
@@ -51,95 +60,199 @@ public class BurgBellGUIListener implements Listener {
         switch (action) {
             case "NOOP" -> { }
 
+            case "OPEN_PLOTS" -> BurgBellUI.openPlotMenu(plugin, player, burg);
+
+            case "BUY_LISTED_PLOT" -> buyListedPlot(player, burg, clicked);
+
             case "VIEW_TAX" -> {
-                p.sendMessage(Component.text("Taxes for " + burg.getName()));
-                p.sendMessage(Component.text("Sales: " + fmtPct(burg.getSalesTaxRate()) + " (max " + fmtPct(Burg.MAX_SALES_TAX) + ")"));
-                p.sendMessage(Component.text("Moneychanger: " + fmtPct(burg.getMoneychangerFeeRate()) + " (max " + fmtPct(Burg.MAX_MONEYCHANGER_FEE) + ")"));
+                player.sendMessage(Component.text("Taxes for " + burg.getName()));
+                player.sendMessage(Component.text("Sales: " + fmtPct(burg.getSalesTaxRate())
+                        + " (max " + fmtPct(Burg.MAX_SALES_TAX) + ")"));
+                player.sendMessage(Component.text("Moneychanger: " + fmtPct(burg.getMoneychangerFeeRate())
+                        + " (max " + fmtPct(Burg.MAX_MONEYCHANGER_FEE) + ")"));
             }
 
-            case "BUY_CHARTER" -> {
-                if (mpc == null || !mpc.isHooked()) {
-                    p.sendMessage(Component.text("MultiPolarCurrency not available."));
-                    return;
-                }
-
-                long cost = plugin.getConfig().getLong("founding.charterCost", 1000L);
-                String cur = burg.getAdoptedCurrencyCode();
-
-                if (mpc.getBalance(p, cur) < cost) {
-                    p.sendMessage(Component.text("You need " + cost + " " + cur));
-                    return;
-                }
-
-                // withdraw from player
-                mpc.withdraw(p, cur, cost);
-
-                // all 1000 goes to selling burg treasury
-                UUID treasuryId = burg.getTreasuryUuid();
-                mpc.touch(treasuryId, cur);
-                mpc.deposit(treasuryId, cur, cost);
-
-                ItemStack charter = BurgBellUI.createCharterBell(plugin, burg);
-                p.getInventory().addItem(charter);
-
-                p.sendMessage(Component.text("Purchased a Burg Charter from " + burg.getName()
-                        + " for " + cost + " " + cur + "."));
-            }
+            case "BUY_CHARTER" -> buyCharter(player, burg);
 
             case "OPEN_SETTINGS" -> {
-                if (!isMayorOrOp(p, burg)) {
-                    p.sendMessage(Component.text("Only the burg mayor can set taxes."));
+                if (!isMayorOrOp(player, burg)) {
+                    player.sendMessage(Component.text("Only the burg mayor can set taxes."));
                     return;
                 }
-                BurgBellUI.openSalesMenu(plugin, p, burg);
+                BurgBellUI.openSalesMenu(plugin, player, burg);
             }
 
-            case "BACK_MAIN" -> BurgBellUI.openMain(plugin, p, burg, burgManager, mpc);
+            case "BACK_MAIN" ->
+                    BurgBellUI.openMain(plugin, player, burg, burgManager, mpc);
 
             case "ADJUST_SALES" -> {
-                if (!isMayorOrOp(p, burg)) {
-                    p.sendMessage(Component.text("Only the burg mayor can set taxes."));
+                if (!isMayorOrOp(player, burg)) {
+                    player.sendMessage(Component.text("Only the burg mayor can set taxes."));
                     return;
                 }
 
                 Double delta = BurgBellUI.getDelta(plugin, clicked);
                 if (delta == null) return;
 
-                double clamped = clamp(burg.getSalesTaxRate() + delta, 0.0, Burg.MAX_SALES_TAX);
+                double clamped = clamp(
+                        burg.getSalesTaxRate() + delta,
+                        0.0,
+                        Burg.MAX_SALES_TAX);
+
                 burg.setSalesTaxRate(clamped);
                 burgManager.save(burg);
 
-                p.sendMessage(Component.text("Sales tax set to " + fmtPct(clamped) + " for " + burg.getName() + "."));
-                BurgBellUI.openSalesMenu(plugin, p, burg);
+                player.sendMessage(Component.text(
+                        "Sales tax set to " + fmtPct(clamped) + " for " + burg.getName() + "."));
+
+                BurgBellUI.openSalesMenu(plugin, player, burg);
             }
 
             case "ADJUST_MCFEE" -> {
-                if (!isMayorOrOp(p, burg)) {
-                    p.sendMessage(Component.text("Only the burg mayor can set taxes."));
+                if (!isMayorOrOp(player, burg)) {
+                    player.sendMessage(Component.text("Only the burg mayor can set taxes."));
                     return;
                 }
 
                 Double delta = BurgBellUI.getDelta(plugin, clicked);
                 if (delta == null) return;
 
-                double clamped = clamp(burg.getMoneychangerFeeRate() + delta, 0.0, Burg.MAX_MONEYCHANGER_FEE);
+                double clamped = clamp(
+                        burg.getMoneychangerFeeRate() + delta,
+                        0.0,
+                        Burg.MAX_MONEYCHANGER_FEE);
+
                 burg.setMoneychangerFeeRate(clamped);
                 burgManager.save(burg);
 
-                p.sendMessage(Component.text("Moneychanger fee set to " + fmtPct(clamped) + " for " + burg.getName() + "."));
-                BurgBellUI.openMcFeeMenu(plugin, p, burg);
+                player.sendMessage(Component.text(
+                        "Moneychanger fee set to " + fmtPct(clamped) + " for " + burg.getName() + "."));
+
+                BurgBellUI.openMcFeeMenu(plugin, player, burg);
             }
+
+            default -> plugin.getLogger().warning("Unhandled Burg Bell GUI action: " + action);
         }
     }
 
-    private static boolean isMayorOrOp(Player p, Burg burg) {
-        if (p.isOp()) return true;
-        UUID leader = burg.getLeaderUuid();
-        return leader != null && leader.equals(p.getUniqueId());
+    private void buyListedPlot(Player buyer, Burg burg, ItemStack clicked) {
+        if (mpc == null || !mpc.isHooked()) {
+            buyer.sendMessage(Component.text("MultiPolarCurrency not available."));
+            return;
+        }
+
+        String plotId = BurgBellUI.getPlotId(plugin, clicked);
+        if (plotId == null || plotId.isBlank()) {
+            plugin.getLogger().warning("Plot listing had no bb_plot_id tag.");
+            buyer.sendMessage(Component.text("This property listing is invalid."));
+            return;
+        }
+
+        Plot plot = burg.getPlot(plotId);
+        if (plot == null) {
+            buyer.sendMessage(Component.text("That property no longer exists."));
+            BurgBellUI.openPlotMenu(plugin, buyer, burg);
+            return;
+        }
+
+        if (!plot.isForSale()) {
+            buyer.sendMessage(Component.text("That property is no longer for sale."));
+            BurgBellUI.openPlotMenu(plugin, buyer, burg);
+            return;
+        }
+
+        /*
+         * Current market rule:
+         * only unowned municipal inventory can be bought through the burg ledger.
+         * Player-to-player resale should later credit a seller wallet rather than
+         * automatically crediting the burg treasury.
+         */
+        if (plot.getOwnerUuid() != null) {
+            buyer.sendMessage(Component.text("That property is privately owned and cannot be bought here yet."));
+            return;
+        }
+
+        if (plot.hasLien()) {
+            buyer.sendMessage(Component.text("That property has an active lien and cannot be sold."));
+            return;
+        }
+
+        long price = plot.getSalePrice();
+        String currency = plot.getSaleCurrencyCode();
+
+        if (price <= 0L) {
+            buyer.sendMessage(Component.text("That property has an invalid sale price."));
+            return;
+        }
+
+        if (currency == null || currency.isBlank()) {
+            buyer.sendMessage(Component.text("That property has no valid sale currency."));
+            return;
+        }
+
+        if (mpc.getBalance(buyer, currency) < price) {
+            buyer.sendMessage(Component.text("You need " + price + " " + currency + "."));
+            return;
+        }
+
+        // Re-check immediately before mutating state.
+        if (!plot.isForSale() || plot.getOwnerUuid() != null) {
+            buyer.sendMessage(Component.text("That property was just removed from the market."));
+            BurgBellUI.openPlotMenu(plugin, buyer, burg);
+            return;
+        }
+
+        mpc.withdraw(buyer, currency, price);
+        mpc.touch(burg.getTreasuryUuid(), currency);
+        mpc.deposit(burg.getTreasuryUuid(), currency, price);
+
+        plot.setOwnerUuid(buyer.getUniqueId());
+        plot.setForSale(false);
+        burgManager.save(burg);
+
+        buyer.sendMessage(Component.text(
+                "Purchased " + plot.getName() + " [" + plot.getId() + "] for "
+                        + price + " " + currency + "."));
+
+        BurgBellUI.openPlotMenu(plugin, buyer, burg);
     }
 
-    private static double clamp(double v, double min, double max) {
-        return Math.max(min, Math.min(max, v));
+    private void buyCharter(Player player, Burg burg) {
+        if (mpc == null || !mpc.isHooked()) {
+            player.sendMessage(Component.text("MultiPolarCurrency not available."));
+            return;
+        }
+
+        long cost = plugin.getConfig().getLong("founding.charterCost", 1000L);
+        String currency = burg.getAdoptedCurrencyCode();
+
+        if (mpc.getBalance(player, currency) < cost) {
+            player.sendMessage(Component.text("You need " + cost + " " + currency));
+            return;
+        }
+
+        mpc.withdraw(player, currency, cost);
+
+        UUID treasuryId = burg.getTreasuryUuid();
+        mpc.touch(treasuryId, currency);
+        mpc.deposit(treasuryId, currency, cost);
+
+        ItemStack charter = BurgBellUI.createCharterBell(plugin, burg);
+        player.getInventory().addItem(charter);
+
+        player.sendMessage(Component.text(
+                "Purchased a Burg Charter from " + burg.getName()
+                        + " for " + cost + " " + currency + "."));
+    }
+
+    private static boolean isMayorOrOp(Player player, Burg burg) {
+        if (player.isOp()) return true;
+        UUID leader = burg.getLeaderUuid();
+        return leader != null && leader.equals(player.getUniqueId());
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static String fmtPct(double rate) {

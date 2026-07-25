@@ -5,6 +5,7 @@ import com.brandon.burgsbanners.bond.BurgBondManager;
 import com.brandon.burgsbanners.burg.BurgManager;
 import com.brandon.burgsbanners.burg.food.FoodScanService;
 import com.brandon.burgsbanners.burg.food.FoodScanScheduler;
+import com.brandon.burgsbanners.commands.BurgPropertyCommand;
 import com.brandon.burgsbanners.burg.storage.BurgStorage;
 import com.brandon.burgsbanners.commands.BurgCommand;
 import com.brandon.burgsbanners.commands.BurgTaxCommand;
@@ -79,6 +80,16 @@ public final class BurgsAndBannersPlugin extends JavaPlugin {
             getCommand("burgtax").setTabCompleter(burgTax);
         } else {
             getLogger().severe("Command 'burgtax' not found in plugin.yml!");
+        }
+
+        // /burgproperty
+        BurgPropertyCommand burgProperty = new BurgPropertyCommand(this, burgManager);
+
+        if (getCommand("burgproperty") != null) {
+            getCommand("burgproperty").setExecutor(burgProperty);
+            getCommand("burgproperty").setTabCompleter(burgProperty);
+        } else {
+            getLogger().severe("Command 'burgproperty' not found in plugin.yml!");
         }
 
         getLogger().info("Burgs & Banners enabled.");

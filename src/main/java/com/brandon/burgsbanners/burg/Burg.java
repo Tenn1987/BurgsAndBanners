@@ -8,6 +8,10 @@ import java.util.*;
 
 public class Burg {
 
+    /** A burg's charter is a fixed 5x5 chunk square centered on its founding home chunk. */
+    public static final int BURG_CLAIM_RADIUS = 2;
+    public static final int BURG_MAX_CLAIMS = 25;
+
     private final String id;                // stable key for YAML (use name or uuid-ish)
     private String name;
 
@@ -44,7 +48,7 @@ public class Burg {
     // ✅ NEW: local sales tax policy (0.00 - 0.35)
     private double salesTaxRate = 0.05; // default 5%
 
-    public static final double MAX_SALES_TAX = 0.35;
+    public static final double MAX_SALES_TAX = 0.5;
 
     public Burg(String id) {
         this.id = id;
@@ -91,7 +95,7 @@ public class Burg {
         return b;
     }
     // --- Moneychanger fee (separate from sales tax) ---
-    public static final double MAX_MONEYCHANGER_FEE = 0.25; // 25% cap
+    public static final double MAX_MONEYCHANGER_FEE = 0.5; // 50% cap
 
     private double moneychangerFeeRate = 0.0;
 
@@ -140,6 +144,19 @@ public class Burg {
         this.homeX = home.getBlockX();
         this.homeY = home.getBlockY();
         this.homeZ = home.getBlockZ();
+    }
+
+    public int getHomeChunkX() { return homeX >> 4; }
+    public int getHomeChunkZ() { return homeZ >> 4; }
+
+    /** Returns true when the claim lies inside this burg's fixed 5x5 charter. */
+    public boolean isWithinCharter(ChunkClaim claim) {
+        if (claim == null || worldId == null) return false;
+        if (!worldId.equals(claim.getWorldId())) return false;
+
+        int dx = Math.abs(claim.getChunkX() - getHomeChunkX());
+        int dz = Math.abs(claim.getChunkZ() - getHomeChunkZ());
+        return dx <= BURG_CLAIM_RADIUS && dz <= BURG_CLAIM_RADIUS;
     }
 
     public Set<UUID> getMembers() { return members; }

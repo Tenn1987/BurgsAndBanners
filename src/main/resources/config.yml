@@ -2,8 +2,8 @@
 
 founding:
 
-  charterCost: 1000
-  issuerShare: 0.5
+  charterCost: 500
+  issuerShare: 1.0
   # radius in chunks around the founder’s current chunk
   # 1 = 3x3, 2 = 5x5, etc
   starterChunkRadius: 1

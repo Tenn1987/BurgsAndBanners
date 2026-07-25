@@ -25,6 +25,11 @@ public class Plot {
     private final int minX, minY, minZ;
     private final int maxX, maxY, maxZ;
 
+    // Sale data
+    private boolean forSale = false;
+    private long salePrice = 0L;
+    private String saleCurrencyCode = "SHEKEL";
+
     // Ownership + collateral hooks
     private UUID ownerUuid;       // Player who owns/builds here (set by mayor)
     private UUID lienHolderUuid;  // Bank/burg holding lien (future)
@@ -77,6 +82,22 @@ public class Plot {
     public void setLienHolderUuid(UUID lienHolderUuid) { this.lienHolderUuid = lienHolderUuid; }
 
     public boolean hasLien() { return lienHolderUuid != null; }
+
+    public boolean isForSale() { return forSale; }
+
+    public void setForSale(boolean forSale) { this.forSale = forSale; }
+
+    public long getSalePrice() { return salePrice; }
+
+    public void setSalePrice(long salePrice) { this.salePrice = Math.max(0L, salePrice); }
+
+    public String getSaleCurrencyCode() {
+        return saleCurrencyCode == null ? "SHEKEL" : saleCurrencyCode.toUpperCase();
+    }
+
+    public void setSaleCurrencyCode(String saleCurrencyCode) {
+        this.saleCurrencyCode = saleCurrencyCode == null ? "SHEKEL" : saleCurrencyCode.toUpperCase();
+    }
 
     /**
      * True if the location is inside the plot.

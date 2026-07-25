@@ -9,6 +9,14 @@ import java.util.*;
 
 public class BurgManager {
 
+    public enum ClaimResult {
+        SUCCESS,
+        INVALID,
+        ALREADY_CLAIMED,
+        OUTSIDE_CHARTER,
+        MAX_SIZE
+    }
+
     private final JavaPlugin plugin;
     private final BurgStorage storage;
 
@@ -110,16 +118,55 @@ public class BurgManager {
         return (b == null) ? null : b.getTreasuryUuid();
     }
 
-    public boolean tryAddClaim(Burg burg, ChunkClaim claim) {
+    /**
+     * Detailed claim attempt used by commands that need an accurate failure message.
+     */
+    public ClaimResult tryAddClaimDetailed(Burg burg, ChunkClaim claim) {
+        if (burg == null || claim == null) return ClaimResult.INVALID;
+
         String owner = claimKeyToBurgId.get(claim.toKey());
-        if (owner != null) return false;
+        if (owner != null) return ClaimResult.ALREADY_CLAIMED;
+
+        if (!burg.isWithinCharter(claim)) return ClaimResult.OUTSIDE_CHARTER;
+        if (burg.getClaimCount() >= Burg.BURG_MAX_CLAIMS) return ClaimResult.MAX_SIZE;
 
         boolean added = burg.addClaim(claim);
-        if (!added) return false;
+        if (!added) return ClaimResult.ALREADY_CLAIMED;
 
         claimKeyToBurgId.put(claim.toKey(), burg.getId());
         storage.saveBurg(burg);
-        return true;
+        return ClaimResult.SUCCESS;
+    }
+
+    /**
+     * Backward-compatible boolean wrapper retained for any existing callers.
+     */
+    public boolean tryAddClaim(Burg burg, ChunkClaim claim) {
+        return tryAddClaimDetailed(burg, claim) == ClaimResult.SUCCESS;
+    }
+
+    /**
+     * Finds an existing burg whose fixed 5x5 charter overlaps the proposed charter.
+     * Borders may touch; overlapping chunks are rejected.
+     */
+    public Burg findOverlappingCharter(UUID worldId, int proposedHomeChunkX, int proposedHomeChunkZ) {
+        if (worldId == null) return null;
+
+        int minimumCenterSeparation = Burg.BURG_CLAIM_RADIUS * 2 + 1;
+
+        for (Burg existing : burgsById.values()) {
+            if (existing == null || existing.getWorldId() == null) continue;
+            if (!worldId.equals(existing.getWorldId())) continue;
+
+            int dx = Math.abs(proposedHomeChunkX - existing.getHomeChunkX());
+            int dz = Math.abs(proposedHomeChunkZ - existing.getHomeChunkZ());
+
+            if (dx < minimumCenterSeparation && dz < minimumCenterSeparation) {
+                return existing;
+            }
+        }
+
+        return null;
     }
 
     public boolean tryRemoveClaim(Burg burg, ChunkClaim claim) {

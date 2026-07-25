@@ -58,7 +58,9 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         return burg != null && burg.getLeaderUuid() != null && burg.getLeaderUuid().equals(player);
     }
 
-    /** A burg is considered orphaned if it has no leader, or the leader is not a current member. */
+    /**
+     * A burg is considered orphaned if it has no leader, or the leader is not a current member.
+     */
     private boolean isOrphaned(Burg burg) {
         if (burg == null) return true;
         UUID leader = burg.getLeaderUuid();
@@ -90,7 +92,9 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         }
     }
 
-    /** Picks a successor for mayor. Prefers online members, then any remaining member. */
+    /**
+     * Picks a successor for mayor. Prefers online members, then any remaining member.
+     */
     private UUID pickSuccessor(Burg burg, UUID exclude) {
         if (burg == null || burg.getMembers() == null) return null;
 
@@ -247,8 +251,27 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         }
 
         Chunk baseChunk = loc.getChunk();
+
+        Burg charterConflict = burgManager.findOverlappingCharter(
+                world.getUID(),
+                baseChunk.getX(),
+                baseChunk.getZ()
+        );
+        if (charterConflict != null) {
+            sender.sendMessage(c("&cThis burg's 5x5 charter would overlap &f"
+                    + charterConflict.getName() + "&c."));
+            return true;
+        }
+
         Set<ChunkClaim> starterClaims = new HashSet<>();
-        int r = plugin.getConfig().getInt("founding.starterChunkRadius", 1);
+        int configuredRadius = plugin.getConfig().getInt("founding.starterChunkRadius", 1);
+        int r = Math.max(0, Math.min(configuredRadius, Burg.BURG_CLAIM_RADIUS));
+
+        if (configuredRadius != r) {
+            plugin.getLogger().warning("founding.starterChunkRadius=" + configuredRadius
+                    + " is outside the supported 0-" + Burg.BURG_CLAIM_RADIUS
+                    + " range; using " + r + ".");
+        }
 
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
@@ -447,12 +470,18 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         Chunk chunk = player.getLocation().getChunk();
         ChunkClaim claim = ChunkClaim.fromChunk(chunk.getWorld(), chunk);
 
-        if (!burgManager.tryAddClaim(burg, claim)) {
-            sender.sendMessage(c("&cThat chunk is already claimed."));
-            return true;
+        BurgManager.ClaimResult result = burgManager.tryAddClaimDetailed(burg, claim);
+        switch (result) {
+            case SUCCESS -> {
+                sender.sendMessage(c("&aClaimed chunk &f(" + claim.getChunkX() + "," + claim.getChunkZ() + ")"));
+                return true;
+            }
+            case ALREADY_CLAIMED -> sender.sendMessage(c("&cThat chunk is already claimed."));
+            case OUTSIDE_CHARTER -> sender.sendMessage(c("&cThat chunk is outside your burg's fixed 5x5 charter."));
+            case MAX_SIZE -> sender.sendMessage(c("&cYour burg has reached its 25-chunk limit."));
+            case INVALID -> sender.sendMessage(c("&cThat claim could not be processed."));
         }
 
-        sender.sendMessage(c("&aClaimed chunk &f(" + claim.getChunkX() + "," + claim.getChunkZ() + ")"));
         return true;
     }
 
@@ -1008,5 +1037,4 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         }
         player.spawnParticle(particle, x + 0.5, y + 0.5, z + 0.5, 1, 0, 0, 0, 0);
     }
-
 }
