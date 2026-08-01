@@ -46,7 +46,7 @@ public final class BurgBellUI {
                 List.of(Component.text("See current tax rates.")),
                 "VIEW_TAX", null, null));
 
-        long cost = plugin.getConfig().getLong("founding.charterCost", 1000L);
+        long cost = plugin.getConfig().getLong("founding.charterCost", 500L);
         long issuerShare = cost / 2;
         long seedShare = cost - issuerShare;
 
@@ -188,6 +188,7 @@ public final class BurgBellUI {
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text("Property ID: " + plot.getId()));
         lore.add(Component.text("Price: " + plot.getSalePrice() + " " + plot.getSaleCurrencyCode()));
+        lore.add(Component.text(plot.getOwnerUuid() == null ? "Seller: Burg treasury" : "Seller: Private owner"));
         lore.add(Component.text("Size: " + width + " × " + depth));
         lore.add(Component.text("Bounds: X " + plot.getMinX() + " to " + plot.getMaxX()));
         lore.add(Component.text("        Z " + plot.getMinZ() + " to " + plot.getMaxZ()));

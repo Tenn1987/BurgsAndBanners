@@ -9,7 +9,7 @@
 
     <groupId>com.brandon</groupId>
     <artifactId>burgs-and-banners</artifactId>
-    <version>0.2.34
+    <version>0.2.35
     </version>
     <packaging>jar</packaging>
 
@@ -42,10 +42,9 @@
         <dependency>
             <groupId>com.brandon</groupId>
             <artifactId>MultiPolarCurrency</artifactId>
-            <version>0.2.6</version>
+            <version>0.3.1</version>
             <scope>provided</scope>
         </dependency>
-
     </dependencies>
 
     <!-- ===== Build ===== -->
