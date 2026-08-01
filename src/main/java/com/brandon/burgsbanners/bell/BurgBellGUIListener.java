@@ -161,19 +161,14 @@ public class BurgBellGUIListener implements Listener {
             return;
         }
 
-        /*
-         * Current market rule:
-         * only unowned municipal inventory can be bought through the burg ledger.
-         * Player-to-player resale should later credit a seller wallet rather than
-         * automatically crediting the burg treasury.
-         */
-        if (plot.getOwnerUuid() != null) {
-            buyer.sendMessage(Component.text("That property is privately owned and cannot be bought here yet."));
+        if (plot.hasLien()) {
+            buyer.sendMessage(Component.text("That property has an active lien and cannot be sold."));
             return;
         }
 
-        if (plot.hasLien()) {
-            buyer.sendMessage(Component.text("That property has an active lien and cannot be sold."));
+        UUID sellerUuid = plot.getOwnerUuid(); // null means municipal inventory
+        if (sellerUuid != null && sellerUuid.equals(buyer.getUniqueId())) {
+            buyer.sendMessage(Component.text("You already own this property."));
             return;
         }
 
@@ -195,16 +190,43 @@ public class BurgBellGUIListener implements Listener {
             return;
         }
 
-        // Re-check immediately before mutating state.
-        if (!plot.isForSale() || plot.getOwnerUuid() != null) {
-            buyer.sendMessage(Component.text("That property was just removed from the market."));
+        // Bukkit inventory events execute on the main thread, but re-check the listing
+        // and seller immediately before moving money and ownership.
+        if (!plot.isForSale() || !java.util.Objects.equals(sellerUuid, plot.getOwnerUuid())) {
+            buyer.sendMessage(Component.text("That property listing just changed."));
             BurgBellUI.openPlotMenu(plugin, buyer, burg);
             return;
         }
 
-        mpc.withdraw(buyer, currency, price);
-        mpc.touch(burg.getTreasuryUuid(), currency);
-        mpc.deposit(burg.getTreasuryUuid(), currency, price);
+        long tax = sellerUuid == null ? 0L : calculateTransferTax(price, burg.getSalesTaxRate());
+        long sellerProceeds = price - tax;
+
+        if (!mpc.withdraw(buyer, currency, price)) {
+            buyer.sendMessage(Component.text("Payment failed; no property was transferred."));
+            return;
+        }
+
+        boolean paymentCompleted;
+        if (sellerUuid == null) {
+            mpc.touch(burg.getTreasuryUuid(), currency);
+            paymentCompleted = mpc.deposit(burg.getTreasuryUuid(), currency, price);
+        } else {
+            mpc.touch(sellerUuid, currency);
+            mpc.touch(burg.getTreasuryUuid(), currency);
+
+            boolean sellerPaid = sellerProceeds == 0L || mpc.deposit(sellerUuid, currency, sellerProceeds);
+            boolean taxPaid = tax == 0L || mpc.deposit(burg.getTreasuryUuid(), currency, tax);
+            paymentCompleted = sellerPaid && taxPaid;
+        }
+
+        if (!paymentCompleted) {
+            // Best-effort refund. Do not transfer title when settlement is incomplete.
+            mpc.deposit(buyer, currency, price);
+            plugin.getLogger().severe("Property settlement failed for plot " + plot.getId()
+                    + "; buyer refund attempted. Check MPC balances for partial deposits.");
+            buyer.sendMessage(Component.text("Settlement failed; your payment was refunded where possible."));
+            return;
+        }
 
         plot.setOwnerUuid(buyer.getUniqueId());
         plot.setForSale(false);
@@ -214,7 +236,27 @@ public class BurgBellGUIListener implements Listener {
                 "Purchased " + plot.getName() + " [" + plot.getId() + "] for "
                         + price + " " + currency + "."));
 
+        if (sellerUuid != null) {
+            buyer.sendMessage(Component.text("Transfer tax paid to " + burg.getName() + ": "
+                    + tax + " " + currency + "."));
+
+            Player seller = org.bukkit.Bukkit.getPlayer(sellerUuid);
+            if (seller != null && seller.isOnline()) {
+                seller.sendMessage(Component.text(
+                        plot.getName() + " [" + plot.getId() + "] sold for " + price + " " + currency
+                                + ". Net proceeds: " + sellerProceeds + " " + currency
+                                + " after " + tax + " " + currency + " tax."));
+            }
+        }
+
         BurgBellUI.openPlotMenu(plugin, buyer, burg);
+    }
+
+    private static long calculateTransferTax(long price, double rate) {
+        if (price <= 0L || rate <= 0.0) return 0L;
+        double rawTax = price * rate;
+        if (!Double.isFinite(rawTax)) return price;
+        return Math.max(0L, Math.min(price, Math.round(rawTax)));
     }
 
     private void buyCharter(Player player, Burg burg) {
