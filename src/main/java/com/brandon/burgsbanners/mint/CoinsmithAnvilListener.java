@@ -20,6 +20,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.plugin.Plugin;
 
 import java.util.Locale;
 import java.util.Optional;
@@ -29,16 +30,11 @@ public class CoinsmithAnvilListener implements Listener {
     private final BurgsAndBannersPlugin plugin;
     private final BurgManager burgManager;
 
-    private final MultiPolarCurrencyPlugin mpcPlugin;
-    private final CurrencyManager currencyManager;
-
     public CoinsmithAnvilListener(BurgsAndBannersPlugin plugin,
                                   BurgManager burgManager,
-                                  MultiPolarCurrencyPlugin mpcPlugin) {
+                                  MultiPolarCurrencyPlugin ignoredStartupMpcPlugin) {
         this.plugin = plugin;
         this.burgManager = burgManager;
-        this.mpcPlugin = mpcPlugin;
-        this.currencyManager = (mpcPlugin != null) ? mpcPlugin.getCurrencyManager() : null;
     }
 
     @EventHandler
@@ -61,18 +57,32 @@ public class CoinsmithAnvilListener implements Listener {
 
         event.setCancelled(true);
 
+        MultiPolarCurrencyPlugin mpcPlugin = resolveMpcPlugin();
+
+        if (mpcPlugin == null) {
+            player.sendMessage("§cCurrency system not available.");
+            return;
+        }
+
+        CurrencyManager currencyManager = mpcPlugin.getCurrencyManager();
+
         if (currencyManager == null) {
             player.sendMessage("§cCurrency system not available.");
             return;
         }
 
         String code = burg.getAdoptedCurrencyCode();
+
         if (code == null || code.isBlank()) {
             player.sendMessage("§cThis burg has no adopted currency.");
             return;
         }
 
-        Optional<Currency> currencyOpt = currencyManager.getCurrency(code.trim().toUpperCase(Locale.ROOT));
+        Optional<Currency> currencyOpt =
+                currencyManager.getCurrency(
+                        code.trim().toUpperCase(Locale.ROOT)
+                );
+
         if (currencyOpt.isEmpty()) {
             player.sendMessage("§cCurrency not found: §f" + code);
             return;
@@ -80,7 +90,10 @@ public class CoinsmithAnvilListener implements Listener {
 
         Currency currency = currencyOpt.get();
 
-        CoinsmithGUIListener.bind(player.getUniqueId(), burg);
+        CoinsmithGUIListener.bind(
+                player.getUniqueId(),
+                burg
+        );
 
         Inventory inv = Bukkit.createInventory(
                 null,
@@ -92,6 +105,22 @@ public class CoinsmithAnvilListener implements Listener {
         player.openInventory(inv);
     }
 
+    private MultiPolarCurrencyPlugin resolveMpcPlugin() {
+        Plugin candidate =
+                Bukkit.getPluginManager()
+                        .getPlugin("MultiPolarCurrency");
+
+        if (!(candidate instanceof MultiPolarCurrencyPlugin mpc)) {
+            return null;
+        }
+
+        if (!mpc.isEnabled()) {
+            return null;
+        }
+
+        return mpc;
+    }
+
     private boolean isAnvil(Material mat) {
         return mat == Material.ANVIL
                 || mat == Material.CHIPPED_ANVIL
@@ -99,7 +128,7 @@ public class CoinsmithAnvilListener implements Listener {
     }
 
     private boolean hasCoinsmithSign(Block anvil) {
-        Block[] candidates = new Block[] {
+        Block[] candidates = new Block[]{
                 anvil.getRelative(1, 0, 0),
                 anvil.getRelative(-1, 0, 0),
                 anvil.getRelative(0, 0, 1),
@@ -120,13 +149,15 @@ public class CoinsmithAnvilListener implements Listener {
 
     private boolean signContainsCoinsmith(Sign sign, Side side) {
         for (int i = 0; i < 4; i++) {
-            String line = PlainTextComponentSerializer.plainText()
-                    .serialize(sign.getSide(side).line(i));
+            String line =
+                    PlainTextComponentSerializer.plainText()
+                            .serialize(sign.getSide(side).line(i));
 
             if (normalize(line).contains("COINSMITH")) {
                 return true;
             }
         }
+
         return false;
     }
 

@@ -34,7 +34,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
     private final Map<UUID, PlotSelection> plotSelections = new HashMap<>();
 
     private static final List<String> SUBS = List.of(
-            "found", "info", "treasury", "claim", "unclaim",
+            "found", "info", "treasury", "currency", "claim", "unclaim",
             "join", "leave", "abdicate", "plot", "bonds"
     );
 
@@ -127,6 +127,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             case "found" -> handleFound(sender, label, args);
             case "info" -> handleInfo(sender);
             case "treasury" -> handleTreasury(sender);
+            case "currency" -> handleCurrency(sender, label, args);
             case "claim" -> handleClaim(sender);
             case "unclaim" -> handleUnclaim(sender);
             case "join" -> handleJoin(sender, label, args);
@@ -155,6 +156,13 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
             List<String> subs = List.of("pos1", "pos2", "create", "show", "list", "assign", "unassign");
             String p = args[1].toLowerCase(Locale.ROOT);
             return subs.stream().filter(s -> s.startsWith(p)).collect(Collectors.toList());
+        }
+
+        if (args.length == 2
+                && args[0].equalsIgnoreCase("currency")
+                && mpc != null
+                && mpc.isHooked()) {
+            return mpc.suggestCurrencyCodes(args[1]);
         }
 
         if (args.length == 3 && args[0].equalsIgnoreCase("found") && mpc != null && mpc.isHooked()) {
@@ -192,6 +200,7 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(c("&e/" + label + " found <name> <currency>"));
         sender.sendMessage(c("&e/" + label + " info"));
         sender.sendMessage(c("&e/" + label + " treasury"));
+        sender.sendMessage(c("&e/" + label + " currency <code>"));
         sender.sendMessage(c("&e/" + label + " claim"));
         sender.sendMessage(c("&e/" + label + " unclaim"));
         sender.sendMessage(c("&e/" + label + " join"));
@@ -446,6 +455,67 @@ public class BurgCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(c("&6== &eTreasury &6=="));
         sender.sendMessage(c("&eBurg: &f" + burg.getName()));
         sender.sendMessage(c("&eBalance: &f" + bal + " " + code));
+        return true;
+    }
+
+    private boolean handleCurrency(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage(c("&cPlayers only."));
+            return true;
+        }
+
+        Burg burg = burgManager.getBurgByMember(player.getUniqueId());
+        if (burg == null) {
+            sender.sendMessage(c("&cYou are not in a burg."));
+            return true;
+        }
+
+        if (!isMayor(burg, player.getUniqueId())) {
+            sender.sendMessage(c("&cOnly the mayor can change the burg currency."));
+            return true;
+        }
+
+        if (args.length < 2) {
+            sender.sendMessage(c("&cUsage: /" + label + " currency <code>"));
+            sender.sendMessage(c("&7Current currency: &f" + burg.getAdoptedCurrencyCode()));
+            return true;
+        }
+
+        if (mpc == null || !mpc.isHooked()) {
+            sender.sendMessage(c("&cMultiPolarCurrency not available."));
+            return true;
+        }
+
+        String code = args[1].trim().toUpperCase(Locale.ROOT);
+
+        if (!mpc.currencyExists(code)) {
+            sender.sendMessage(c("&cUnknown currency: &f" + code));
+            return true;
+        }
+
+        String oldCode = burg.getAdoptedCurrencyCode();
+
+        if (oldCode != null && code.equalsIgnoreCase(oldCode)) {
+            sender.sendMessage(c("&e" + burg.getName() + " already uses &f" + code + "&e."));
+            return true;
+        }
+
+        burg.setAdoptedCurrencyCode(code);
+
+        if (burg.getTreasuryUuid() != null) {
+            mpc.touch(burg.getTreasuryUuid(), code);
+        }
+
+        burgManager.save(burg);
+
+        sender.sendMessage(c("&a" + burg.getName()
+                + " has adopted &f" + code
+                + "&a as its currency."));
+
+        if (oldCode != null && !oldCode.isBlank()) {
+            sender.sendMessage(c("&7Previous currency: &f" + oldCode));
+        }
+
         return true;
     }
 
